@@ -212,7 +212,7 @@ def calculate_gw_series(t_array, GW0, A, T, freq, Da, Dd, R_scale):
 
 # berechne_messwert wird nicht mehr direkt für die Hauptgenerierung verwendet und wurde entfernt.
 
-def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours, formel_params, progress, progress_info):
+def create_csv_files(start_date, end_date, messstellen_ids, interval_hours, formel_params): # 'formel' Parameter entfernt
     hourly_interval = timedelta(hours=interval_hours)
     delta = end_date - start_date
     total_days = delta.days + 1
@@ -639,9 +639,8 @@ def create_gui():
             return 0
 
     startdatum.bind("<FocusOut>", lambda e: berechne_zeitspanne())
-    startdatum.bind("<FocusOut>", lambda e: berechne_zeitspanne())
-    enddatum.bind("<FocusOut>", lambda e: berechne_zeitspanne())
-    intervall_entry.bind("<FocusOut>", lambda e: berechne_werte_anzahl())
+enddatum.bind("<FocusOut>", lambda e: berechne_zeitspanne())
+intervall_entry.bind("<FocusOut>", lambda e: berechne_werte_anzahl())
 
     # 2. Messstellen
     messstellen_frame = tk.Frame(main_frame, bg=DISCORD_BG)
@@ -779,7 +778,7 @@ def create_gui():
 
 
         # Erstelle die Figure für den Plot
-        fig = Figure(figsize=(5, 4), dpi=100, facecolor=DISCORD_DARKER)
+        fig = Figure(figsize=(5, 4), dpi=100, facecolor=DISCORD_DARKer)
         ax = fig.add_subplot(111)
         ax.set_facecolor(DISCORD_DARKER)
         ax.spines['bottom'].set_color(DISCORD_TEXT)
@@ -1091,8 +1090,8 @@ def create_gui():
             # Thread starten, um GUI nicht zu blockieren
             # Übergebe formel_params direkt an die Thread-Funktion
             thread = threading.Thread(target=create_csv_files,
-                                        args=(root, start_date, end_date, messstellen_ids,
-                                            interval_hours, formel_params, progress, progress_info))
+                                     args=(start_date, end_date, messstellen_ids,
+                                           interval_hours, formel_params)) # Entfernte 'formel'
             thread.daemon = True
             thread.start()
 
