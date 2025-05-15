@@ -29,41 +29,132 @@ BUTTON_HOVER = "#3ac558"
 
 # Angepasste DateEntry-Klasse für Darkmode
 class DarkDateEntry(DateEntry):
+    """
+    Eine angepasste DateEntry-Klasse mit Darkmode-Styling.
+    """
     def __init__(self, master=None, **kw):
-        DateEntry.__init__(self, master, **kw)
-        self._top_cal.configure(background=DISCORD_DARKER)
+        # Darkmode-Farbdefinitionen für den Kalender
+        dark_colors = {
+            'background': DISCORD_DARK,          # Haupthintergrund
+            'foreground': DISCORD_TEXT,          # Haupttext
+            'bordercolor': DISCORD_DARKER,       # Rahmenfarbe
+            'headersbackground': DISCORD_DARKER, # Hintergrund der Kopfzeilen
+            'headersforeground': DISCORD_TEXT,   # Text der Kopfzeilen
+            'selectbackground': DISCORD_GREEN,   # Auswahlhintergrund
+            'selectforeground': 'white',         # Auswahltext
+            'normalbackground': DISCORD_DARK,    # Hintergrund normaler Tage
+            'normalforeground': DISCORD_TEXT,    # Text normaler Tage
+            'weekendbackground': DISCORD_DARKER, # Hintergrund am Wochenende
+            'weekendforeground': DISCORD_TEXT,   # Text am Wochenende
+            'othermonthbackground': '#2C2F33',   # Hintergrund anderer Monate
+            'othermonthforeground': '#72767D'    # Text anderer Monate
+        }
+        
+        # Parameter mit dark_colors erweitern
+        for key, value in dark_colors.items():
+            if key not in kw:
+                kw[key] = value
+        
+        # Eingabefeld-Farben
+        if 'background' not in kw:
+            kw['background'] = DISCORD_DARK
+        if 'foreground' not in kw:
+            kw['foreground'] = DISCORD_TEXT
+        if 'insertbackground' not in kw:
+            kw['insertbackground'] = DISCORD_TEXT  # Cursor-Farbe
+                
+        # Super-Konstruktor mit Darkmode-Parametern aufrufen
+        super().__init__(master, **kw)
+        
+        # Dropdown-Button anpassen (dieser wird nach der Initialisierung erstellt)
+        for child in self.winfo_children():
+            if child.winfo_class() == 'Button':
+                child.configure(
+                    background=DISCORD_DARK,
+                    activebackground=DISCORD_GREEN,
+                    foreground=DISCORD_TEXT,
+                    activeforeground='white'
+                )
+        
+        # Kalenderfenster konfigurieren, wenn es erstellt wird (bei Drop-down)
+        self.bind("<<DateEntryPopup>>", self._style_calendar_popup)
+    
+    def _style_calendar_popup(self, event=None):
+        """Style das Kalenderfenster, wenn es geöffnet wird"""
+        if hasattr(self, '_top_cal'):
+            self._top_cal.configure(background=DISCORD_DARKER)
 
-        # Kinder-Widgets anpassen
-        for child in self._top_cal.winfo_children():
-            if child.winfo_class() == 'Label':
-                child.configure(background=DISCORD_DARKER, foreground=DISCORD_TEXT)
-            elif child.winfo_class() == 'Button':
-                child.configure(background=DISCORD_DARK, foreground=DISCORD_TEXT,
-                               activebackground=DISCORD_GREEN, activeforeground=DISCORD_TEXT)
+            # Untergeordnete Widgets im Kalender anpassen
+            for child in self._top_cal.winfo_children():
+                if child.winfo_class() == 'Label':
+                    child.configure(background=DISCORD_DARKER, foreground=DISCORD_TEXT)
+                elif child.winfo_class() == 'Button':
+                    child.configure(
+                        background=DISCORD_DARK, 
+                        foreground=DISCORD_TEXT,
+                        activebackground=DISCORD_GREEN, 
+                        activeforeground='white'
+                    )
 
 # Verbesserte DateEntry-Klasse mit deutscher Datumsanzeige und Autovervollständigung
 class AutoDateEntry(DarkDateEntry):
+    """
+    Erweitert die DarkDateEntry-Klasse um deutsche Datumsanzeige und 
+    automatische Formatierung im Format dd.mm.yy
+    """
     def __init__(self, master=None, **kwargs):
         # Deutsches Datumsformat als Standard setzen
         kwargs['locale'] = 'de_DE'
         kwargs['date_pattern'] = 'dd.mm.yy'
 
+        # Darkmode Stile für DateEntry
+        style_options = {
+            'background': DISCORD_INPUT_BG,
+            'foreground': DISCORD_TEXT,
+            'borderwidth': 0,
+            # Weitere Styling-Optionen...
+        }
+        
+        kwargs.update(style_options)
+        
         # Super-Konstruktor aufrufen
         super().__init__(master, **kwargs)
 
-        # Event direkt an das Widget binden
+        # Events binden
         self.bind("<KeyRelease>", self._format_date_entry)
-        # Wichtig: FocusOut-Event hinzufügen
-        self.bind("<FocusOut>", self._close_calendar)
+        self.unbind("<FocusOut>")
+        self.bind("<FocusOut>", self._smart_close_calendar)
+        
         self.last_value = ""
 
-    def _close_calendar(self, event):
-        # Kalenderfenster schließen, wenn es geöffnet ist
-        if hasattr(self, '_top_cal') and self._top_cal:
-            self._top_cal.withdraw()
+    def _smart_close_calendar(self, event):
+        """Schließt den Kalender nur, wenn nicht auf Navigationselemente geklickt wird"""
+        if not hasattr(self, '_top_cal') or not self._top_cal.winfo_exists():
+            return
+            
+        # Mausposition und Widget unter der Maus bestimmen
+        x, y = self.winfo_pointerxy()
+        widget_under_mouse = self.winfo_containing(x, y)
+        
+        # Prüfen, ob Widget Teil des Kalenders ist
+        if widget_under_mouse:
+            # Rekursiv nach oben durch die Widget-Hierarchie gehen
+            parent = widget_under_mouse
+            while parent:
+                if parent == self._top_cal:
+                    # Maus ist über Kalenderelement -> nicht schließen
+                    return
+                try:
+                    parent = parent.master
+                except:
+                    break
+                    
+        # Wenn wir hier ankommen, ist die Maus nicht über dem Kalender
+        self._top_cal.withdraw()
+
 
     def _format_date_entry(self, event):
-        # Bei Löschtasten oder Navigationstasten nicht formatieren
+        """Automatische Formatierung der Datumseingabe im Format dd.mm.yy"""
         if event.keysym in ('BackSpace', 'Delete', 'Left', 'Right', 'Up', 'Down'):
             self.last_value = self.get()
             return
@@ -71,42 +162,52 @@ class AutoDateEntry(DarkDateEntry):
         current = self.get()
         cursor_pos = self.index(tk.INSERT)
 
-        # Auto-Format für den Tag
-        if len(current) == 2 and current.isdigit():
-            # Tag prüfen (1-31)
-            day = int(current)
-            if 1 <= day <= 31:
-                # Führende Null hinzufügen wenn nötig
-                if day < 10 and not current.startswith('0'):
-                    current = "0" + current[-1]
-                current += "."
-                self.delete(0, tk.END)
-                self.insert(0, current)
-                self.icursor(3)  # Cursor nach dem Punkt
+        # Entferne alle nicht-ziffern außer Punkten
+        filtered = ''.join(c for c in current if c.isdigit() or c == '.')
 
-        # Auto-Format für den Monat
-        elif len(current) == 5 and current[2] == ".":
-            month_str = current[3:5]
-            if month_str.isdigit():
-                month = int(month_str)
-                if 1 <= month <= 12:
-                    # Füge ggf. führende Null hinzu
-                    if month < 10 and not month_str.startswith('0'):
-                        current = current[:3] + "0" + month_str[-1]
-                    current += "."
-                    self._entry.delete(0, tk.END)
-                    self._entry.insert(0, current)
-                    self._entry.icursor(6)  # Cursor nach dem zweiten Punkt
+        # Automatisches Einfügen von Punkten nach Tag und Monat
+        parts = filtered.split('.')
 
-        # Auto-Format für das Jahr (4-stellig → 2-stellig)
-        elif len(current) > 8 and current[2] == "." and current[5] == ".":
-            year_str = current[6:]
-            if year_str.isdigit() and len(year_str) == 4:
-                current = current[:6] + year_str[2:]  # Die letzten zwei Stellen
-                self._entry.delete(0, tk.END)
-                self._entry.insert(0, current)
+        if len(parts) == 1 and parts[0]:
+            # Tag eingeben
+            if len(parts[0]) == 1 and parts[0].isdigit():
+                if int(parts[0]) > 3:
+                    # Wenn erste Ziffer größer als 3, füge führende Null hinzu
+                    filtered = '0' + parts[0] + '.'
+            elif len(parts[0]) == 2:
+                day = int(parts[0])
+                if 1 <= day <= 31:
+                    filtered = parts[0] + '.'
+                else:
+                    self.delete(0, tk.END)
+                    self.insert(0, self.last_value)
+                    self.icursor(cursor_pos - 1)
+                    return
+        elif len(parts) == 2:
+            # Tag und Monat eingeben
+            day, month = parts
+            if len(month) == 1 and month.isdigit():
+                if int(month) > 1:
+                    month = '0' + month
+            if month and len(month) == 2:
+                m = int(month)
+                if not (1 <= m <= 12):
+                    self.delete(0, tk.END)
+                    self.insert(0, self.last_value)
+                    self.icursor(cursor_pos - 1)
+                    return
+            filtered = day + '.' + month + '.'
+        elif len(parts) == 3:
+            # Tag, Monat und Jahr eingeben
+            day, month, year = parts
+            if len(year) > 2:
+                year = year[-2:]
+            filtered = day + '.' + month + '.' + year
 
-        self.last_value = self._entry.get()
+        self.delete(0, tk.END)
+        self.insert(0, filtered)
+        self.icursor(len(filtered))
+        self.last_value = filtered
 
 # Dunkle Titelleiste für Windows
 def set_dark_title_bar(window):
@@ -137,80 +238,116 @@ def create_rounded_rect(canvas, x1, y1, x2, y2, radius=15, **kwargs):
              x1, y1]
     return canvas.create_polygon(points, **kwargs, smooth=True)
 
-# --- Start of Modified/New Logic ---
 
 # Die Formel-Parameter-Klasse (nur mit Grundwasser-Parametern)
 class FormelParameter:
     def __init__(self):
-        # Parameter für Grundwasserganglinie (nach Wunsch des Benutzers)
-        # Diese werden nun direkt in der Generierungslogik verwendet.
-        self.GW0 = 12.0  # Grundniveau
-        self.A = 1.0     # Amplitude
-        self.T = 365     # Periodendauer in Tagen
-        self.freq = 1.0  # Sinusfrequenz pro Periodendauer (hier: 1 mal pro 365 Tage)
-        self.Da = 20     # Anstiegsdauer in Tagen
-        self.Dd = 50     # Abklingdauer in Tagen
-        self.R_scale = 0.12  # Skalierung für zufällige Schwankungen (Standardabweichung der Störung)
+        # Realistischere Standardwerte für die Grundwasserganglinie
+        self.GW0 = 10.0    # Grundniveau in Meter unter GOK (realistischer Ausgangswert)
+        self.A = 0.5       # Saisonale Amplitude (typischerweise 0.2-1.5m)
+        self.T = 365       # Periodendauer in Tagen
+        self.freq = 1.0    # Sinusfrequenz pro Periodendauer
+        self.Da = 45       # Anstiegsdauer in Tagen (realistischer: 30-60 Tage)
+        self.Dd = 120      # Abklingdauer in Tagen (realistischer: 90-180 Tage)
+        self.R_scale = 0.05  # Skalierung für zufällige Schwankungen (kleinerer Wert)
+        
+        # Neue Parameter für realistischere Grundwassermodellierung
+        self.phase = 60    # Phasenverschiebung in Tagen (Maximum im Frühjahr)
+        self.trend = 0.0   # Langzeittrend pro Jahr in Meter (Klimawandel-Effekt)
 
     def generiere_formel(self):
-        # Diese Methode wird angepasst, da die Generierung nicht mehr auf einer Eval-Formel basiert.
-        # Sie gibt nun eine Beschreibung der verwendeten Parameter zurück.
         return (f"Generierung basierend auf GW-Modell: GW0={self.GW0}, A={self.A}, T={self.T}, freq={self.freq}, "
-                f"Da={self.Da}, Dd={self.Dd}, R_scale={self.R_scale}")
+                f"Da={self.Da}, Dd={self.Dd}, R_scale={self.R_scale}, phase={self.phase}, trend={self.trend}")
 
 
-# Funktion zur Berechnung der Grundwasserganglinie (Aus dem Submenü verschoben und angepasst)
-# Wird nun von create_csv_files verwendet.
-def calculate_gw_series(t_array, GW0, A, T, freq, Da, Dd, R_scale):
-     # Sicherstellen, dass R_base die gleiche Länge hat wie t_array
-     # Konsistenter Seed für reproduzierbare Zufallswerte über die gesamte Zeitreihe
-     np.random.seed(42)
-     R_base = np.random.normal(0, 1, size=len(t_array))
 
-     # Saisonale Schwankung mit einstellbarer Frequenz pro Periodendauer T
-     # Wenn T 365 ist und freq 1, dann ist es eine jährliche Sinuswelle.
-     # Wenn T 365 und freq 2, dann sind es 2 Zyklen pro Jahr.
-     # Stellen Sie sicher, dass T nicht Null ist, um Division durch Null zu vermeiden.
-     if T == 0: T = 365 # Fallback-Wert
-
-     seasonal = A * np.sin(2 * np.pi * freq * t_array / T)
-
-     GW = np.zeros_like(t_array, dtype=float)
-
-     # Den ersten Wert initialisieren
-     if len(t_array) > 0:
-         GW[0] = GW0 + seasonal[0]
-
-     for i in range(1, len(t_array)):
-         # Zufälliges Ereignis (Störung) skaliert
-         disturbance = R_scale * R_base[i] # R_base ist Normalverteilung
-
-         # Die Logik zur Berechnung des nächsten Schritts basierend auf der Störung
-         # und der Rückkehr zum Grundniveau (GW0).
-
-         diff_from_GW0 = GW[i-1] - GW0
-
-         daily_change = 0
-         # Wenn eine positive Störung vorliegt und eine Anstiegsdauer definiert ist (>0)
-         if disturbance > 0 and Da > 0:
-             # Die Änderung steuert das Niveau in Richtung (GW0 + disturbance) mit Rate 1/Da
-             daily_change = (disturbance - diff_from_GW0) / Da
-
-         # Wenn keine positive Störung vorliegt und eine Abklingdauer definiert ist (>0)
-         elif Dd > 0:
-             # Das Niveau zerfällt exponentiell zurück zu GW0 mit Rate 1/Dd
-             daily_change = -diff_from_GW0 / Dd
-
-         # Update des Grundwasserwerts vor Berücksichtigung der saisonalen Änderung
-         GW[i] = GW[i-1] + daily_change
-
-         # Addiere die tägliche Änderung der saisonalen Komponente
-         GW[i] += seasonal[i] - seasonal[i-1]
-
-
-     return GW
-
-# berechne_messwert wird nicht mehr direkt für die Hauptgenerierung verwendet und wurde entfernt.
+# Funktion zur Berechnung der Grundwasserganglinie
+def calculate_gw_series(t_array, GW0, A, T, freq, Da, Dd, R_scale, phase=60, trend=0.0):
+    """
+    Erzeugt flexible Grundwasserganglinien mit umfangreichen Einstellmöglichkeiten.
+    """
+    np.random.seed(42)
+    n = len(t_array)
+    
+    # Basis-Komponenten: Saison + Trend
+    seasonal = A * np.sin(2 * np.pi * freq * (t_array - phase) / T)
+    trend_component = trend * t_array / 365
+    base_level = GW0 + seasonal + trend_component
+    
+    # Grundwasserstand initialisieren
+    GW = np.zeros(n)
+    GW[0] = base_level[0]
+    
+    # Dynamisches Verhalten konfigurieren
+    # Bei großem R_scale: mehr und stärkere Ereignisse
+    num_events = max(3, int(n / (150 - 100 * R_scale)))
+    event_indices = np.sort(np.random.choice(range(n), size=num_events, replace=False))
+    event_strengths = 0.5 + np.random.random(size=num_events) * (0.8 + R_scale * 2)
+    
+    # Parameter für das dynamische Verhalten
+    max_daily_change = 0.01 * A * (1 + 2 * R_scale)
+    rise_factor = max(0.2, min(5, 1 / (0.2 + Da/100)))  # Anstiegsgeschwindigkeit
+    decay_factor = max(0.1, min(3, 1 / (0.1 + Dd/100)))  # Abklinggeschwindigkeit
+    
+    # Ereigniseinfluss
+    event_influence = 0.0
+    
+    # Hauptschleife für die Ganglinie
+    for i in range(1, n):
+        # Neues Ereignis?
+        current_event = np.where(event_indices == i)[0]
+        if len(current_event) > 0:
+            # Stärkerer Einfluss bei höherem R_scale
+            event_influence += event_strengths[current_event[0]] * A * R_scale
+        
+        # Ereignisse klingen mit individueller Geschwindigkeit ab
+        decay_rate = 0.01 + 0.02 * decay_factor
+        event_influence *= (1.0 - decay_rate)
+        
+        # Zielniveau berechnen
+        target_level = base_level[i] + event_influence
+        
+        # Abweichung und Reaktion
+        deviation = GW[i-1] - target_level
+        
+        # Dynamische Änderungsrate basierend auf Abweichung
+        if deviation < 0:  # Anstieg nötig
+            # Schneller bei großem A und kleinem Da
+            rate = rise_factor * (0.05 + 0.1 * abs(deviation) / A)
+        else:  # Abfall nötig
+            # Schneller bei großem A und kleinem Dd
+            rate = decay_factor * (0.02 + 0.05 * abs(deviation) / A)
+        
+        # Tägliche Änderung berechnen und begrenzen
+        daily_change = -deviation * rate
+        daily_change = np.clip(daily_change, -max_daily_change, max_daily_change)
+        
+        # Hysterese für natürliche Mikroschwankungen
+        if abs(daily_change) < 0.2 * max_daily_change:
+            daily_change *= 0.5
+        
+        # Tägliche Änderung anwenden
+        GW[i] = GW[i-1] + daily_change
+        
+        # Zusätzliches Mikrorauschen - stärker bei hohem R_scale
+        GW[i] += np.random.normal(0, 0.003 * A * R_scale)
+    
+    # Glättung anpassen je nach R_scale
+    # Bei hohem R_scale: weniger Glättung für "wildere" Kurven
+    num_smoothing = max(1, min(4, int(4 - 3 * R_scale)))
+    window_size = max(3, min(23, int(17 * (1 - 0.7 * R_scale))))
+    window_size += (window_size % 2 == 0)  # Sicherstellen dass Fenstergröße ungerade
+    
+    # Glättung anwenden
+    for _ in range(num_smoothing):
+        GW_smoothed = np.zeros_like(GW)
+        for i in range(n):
+            start = max(0, i - window_size // 2)
+            end = min(n, i + window_size // 2 + 1)
+            GW_smoothed[i] = np.mean(GW[start:end])
+        GW = GW_smoothed.copy()
+    
+    return GW
 
 def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours, formel_params, progress, progress_info):
     hourly_interval = timedelta(hours=interval_hours)
@@ -219,10 +356,8 @@ def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours
     # Die Anzahl der Stunden in der Zeitspanne
     total_hours = total_days * 24
     # Die Anzahl der Messwerte pro Messstelle basierend auf dem Intervall
-    # Stellen Sie sicher, dass interval_hours nicht Null ist, um Division durch Null zu vermeiden.
     if interval_hours == 0: interval_hours = 1 # Fallback-Wert
     total_measurements_per_station = int(total_hours / interval_hours)
-
     total_values = total_measurements_per_station * len(messstellen_ids)
 
     # Zeit-Array für die Grundwasserberechnung (Tages-basiert)
@@ -230,20 +365,26 @@ def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours
 
     # Grundwasserganglinie basierend auf den Parametern berechnen
     try:
-        grundwasser_series_daily = calculate_gw_series(t_days_array,
-                                                      formel_params.GW0,
-                                                      formel_params.A,
-                                                      formel_params.T,
-                                                      formel_params.freq,
-                                                      formel_params.Da,
-                                                      formel_params.Dd,
-                                                      formel_params.R_scale)
+        # Prüfe, ob die neuen Parameter vorhanden sind
+        phase = getattr(formel_params, 'phase', 60)  # Standardwert falls nicht vorhanden
+        trend = getattr(formel_params, 'trend', 0.0)  # Standardwert falls nicht vorhanden
+        
+        grundwasser_series_daily = calculate_gw_series(
+            t_days_array,
+            formel_params.GW0,
+            formel_params.A,
+            formel_params.T,
+            formel_params.freq,
+            formel_params.Da,
+            formel_params.Dd,
+            formel_params.R_scale,
+            phase,
+            trend
+        )
 
     except Exception as e:
         print(f"Fehler bei Grundwasserreihen-Berechnung: {e}")
-        # Im Fehlerfall eine einfache, flache Linie auf dem Grundniveau
         grundwasser_series_daily = np.full(total_days, formel_params.GW0)
-
 
     values_created = 0
 
@@ -269,12 +410,12 @@ def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours
 
 
                 # Individualisierung pro Messstelle (Offset)
-                messstellen_offset = (idx - len(messstellen_ids) / 2) * 0.02
+                messstellen_offset = (idx - len(messstellen_ids) / 2) * 1.02
                 messwert = basis_value + messstellen_offset
 
                 # Optional: Fügen Sie hier sehr kleine, stündliche Zufallsschwankungen hinzu,
                 # die nicht Teil des täglichen GW-Modells sind, aber realistisches Rauschen simulieren.
-                # messwert += random.uniform(-formel_params.R_scale * 0.02, formel_params.R_scale * 0.02) # Beispiel
+                messwert += random.uniform(-formel_params.R_scale * 1.02, formel_params.R_scale * 1.02) # Beispiel
 
 
                 # Datum als datetime-Objekt beibehalten für Excel
@@ -357,7 +498,7 @@ def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours
                     messwert = basis_value + messstellen_offset
 
                     # Optional: Fügen Sie hier sehr kleine, stündliche Zufallsschwankungen hinzu
-                    # messwert += random.uniform(-formel_params.R_scale * 0.02, formel_params.R_scale * 0.02) # Beispiel
+                    messwert += random.uniform(-formel_params.R_scale * 0.02, formel_params.R_scale * 0.02) # Beispiel
 
 
                     csvwriter.writerow([messstelle_id, formatted_date, f'{messwert:.2f}'.replace('.', ',')])
@@ -373,8 +514,6 @@ def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours
         progress['value'] = 100
         progress_info.config(text=f"{total_values:,}/{total_values:,} Werte generiert (100%)".replace(',', '.'))
         root.update_idletasks()
-
-# --- End of Modified/New Logic ---
 
 
 # Ladescreen-Funktion
@@ -442,7 +581,7 @@ def create_gui():
 
     # Logo oben rechts
     try:
-        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ribeka 55mm breit_white_2.png")
+        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ribeka 55mm breit_white.png")
         original_logo = Image.open(logo_path)
         logo_width = 100
         aspect_ratio = original_logo.height / original_logo.width
@@ -523,18 +662,16 @@ def create_gui():
     zeitspanne_label = tk.Label(zeitspan_canvas, text="Zeitspanne", **label_style)
     zeitspan_canvas.create_window(20, 30, window=zeitspanne_label, anchor="w")
 
-    startdatum = AutoDateEntry(zeitspan_canvas, width=12, background=DISCORD_INPUT_BG,
-                             foreground=DISCORD_TEXT, borderwidth=0)
-
+    # Nur width angeben, keine anderen Style-Parameter überschreiben
+    startdatum = AutoDateEntry(zeitspan_canvas, width=12)
     zeitspan_canvas.create_window(170, 30, window=startdatum)
 
     zeitspanne_anzeige = tk.Label(zeitspan_canvas, text="0 Jahre, 0 Monate, 0 Tage",
                                 **label_style, width=25)
     zeitspan_canvas.create_window(340, 30, window=zeitspanne_anzeige)
 
-    enddatum = AutoDateEntry(zeitspan_canvas, width=12, background=DISCORD_INPUT_BG,
-                           foreground=DISCORD_TEXT, borderwidth=0)
-
+    # Nur width angeben, keine anderen Style-Parameter überschreiben
+    enddatum = AutoDateEntry(zeitspan_canvas, width=12)
     zeitspan_canvas.create_window(500, 30, window=enddatum)
 
     intervall_label = tk.Label(zeitspan_canvas, text="Intervall (Stunden)", **label_style)
@@ -543,6 +680,7 @@ def create_gui():
     intervall_entry = tk.Entry(zeitspan_canvas, width=10, **entry_style)
     intervall_entry.insert(0, "1")
     zeitspan_canvas.create_window(200, 70, window=intervall_entry)
+
 
     def parse_flexible_date(date_string):
         """Parst deutsches Datum flexibel mit 2- oder 4-stelligem Jahr"""
@@ -886,10 +1024,10 @@ def create_gui():
         # Grundwasserparameter-Slider erstellen
         # Initialisiere Slider mit den aktuellen Werten aus dem formel_params Objekt
         s_GW0, var_GW0 = create_parameter_slider(parameter_frame, 1, "Grundniveau [m]:", 10, 14, formel_params.GW0, precision=2)
-        s_A, var_A = create_parameter_slider(parameter_frame, 2, "Saisonale Amplitude [m]:", 0.1, 2.0, formel_params.A, precision=2)
+        s_A, var_A = create_parameter_slider(parameter_frame, 2, "Saisonale Amplitude [m]:", 0.1, 20.0, formel_params.A, precision=2)
         s_T, var_T = create_parameter_slider(parameter_frame, 3, "Periodendauer (Tage):", 100, 500, formel_params.T, precision=0)
         s_freq, var_freq = create_parameter_slider(parameter_frame, 4, "Sinusfrequenz/Periode:", 0.5, 3.0, formel_params.freq, precision=1)
-        s_Da, var_Da = create_parameter_slider(parameter_frame, 5, "Anstiegsdauer (Tage):", 1, 100, formel_params.Da, precision=0)
+        s_Da, var_Da = create_parameter_slider(parameter_frame, 5, "Anstiegsdauer (Tage):", 1, 200, formel_params.Da, precision=0)
         s_Dd, var_Dd = create_parameter_slider(parameter_frame, 6, "Abklingdauer (Tage):", 1, 200, formel_params.Dd, precision=0)
         s_R, var_R = create_parameter_slider(parameter_frame, 7, "Zufällige Schwankungen (Skala):", 0.0, 0.5, formel_params.R_scale, precision=2)
 
