@@ -1,0 +1,125 @@
+{
+ "version": "auto-py-to-exe-configuration_v1",
+ "pyinstallerOptions": [
+  {
+   "optionDest": "noconfirm",
+   "value": true
+  },
+  {
+   "optionDest": "filenames",
+   "value": "C:/Users/e.missal/OneDrive - ribeka.com/Pc/Dokumente/Downloads/WaterGen.py"
+  },
+  {
+   "optionDest": "onefile",
+   "value": true
+  },
+  {
+   "optionDest": "console",
+   "value": false
+  },
+  {
+   "optionDest": "icon_file",
+   "value": "C:/Users/e.missal/OneDrive - ribeka.com/Pc/Dokumente/GitHub/autorun/python/Datengenerierung/icon.ico"
+  },
+  {
+   "optionDest": "datas",
+   "value": "C:/Users/e.missal/OneDrive - ribeka.com/Pc/Dokumente/GitHub/autorun/python/Datengenerierung/icon.ico;."
+  },
+  {
+   "optionDest": "clean_build",
+   "value": false
+  },
+  {
+   "optionDest": "strip",
+   "value": false
+  },
+  {
+   "optionDest": "noupx",
+   "value": false
+  },
+  {
+   "optionDest": "disable_windowed_traceback",
+   "value": false
+  },
+  {
+   "optionDest": "uac_admin",
+   "value": false
+  },
+  {
+   "optionDest": "uac_uiaccess",
+   "value": false
+  },
+  {
+   "optionDest": "argv_emulation",
+   "value": false
+  },
+  {
+   "optionDest": "bootloader_ignore_signals",
+   "value": false
+  },
+  {
+   "optionDest": "datas",
+   "value": "C:/Users/e.missal/OneDrive - ribeka.com/Pc/Dokumente/GitHub/autorun/python/Datengenerierung/ribeka 55mm breit_white.png;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "C:/Users/e.missal/AppData/Roaming/Python/Python313t/site-packages/matplotlib/mpl-data;matplotlib/mpl-data"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "_tkinter"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "tkinter"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "tkinter.ttk"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "tkcalendar"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "numpy"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "PIL"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "PIL.Image"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "PIL.ImageTk"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "matplotlib"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "matplotlib.figure"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "threading"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "csv"
+  },
+  {
+   "optionDest": "hiddenimports",
+   "value": "datetime"
+  }
+ ],
+ "nonPyinstallerOptions": {
+  "increaseRecursionLimit": true,
+  "manualArguments": ""
+ }
+}

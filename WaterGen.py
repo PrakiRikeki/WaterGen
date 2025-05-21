@@ -268,103 +268,51 @@ class FormelParameter:
 
 # Funktion zur Berechnung der Grundwasserganglinie
 def calculate_gw_series(t_array, GW0, A, T, freq, Da, Dd, R_scale, phase=60, trend=0.0, curve_randomness=0.2, secondary_freq=3.0):
+    # Seed setzen für reproduzierbare Ergebnisse
     np.random.seed(42)
-    n = len(t_array)
+    
+    # R_base analog zur Vorschau erstellen
+    R_base = np.random.normal(0, 1, size=len(t_array))
+    
+    # Stellen Sie sicher, dass T nicht Null ist, um Division durch Null zu vermeiden
+    if T == 0: T = 365 # Fallback-Wert
     
     # Amplitudenvariationen für jeden Wellenzyklus
     if curve_randomness > 0:
-        amplitude_variation = 1.0 + curve_randomness * np.random.normal(0, 1, size=n)
+        amplitude_variation = 1.0 + curve_randomness * np.random.normal(0, 1, size=len(t_array))
         seasonal = A * np.sin(2 * np.pi * freq * (t_array - phase) / T) * amplitude_variation
     else:
         seasonal = A * np.sin(2 * np.pi * freq * (t_array - phase) / T)
     
+    # Sekundäre kleinere Wellen hinzufügen
     if secondary_freq > 0:
         small_waves = A * 0.3 * np.sin(2 * np.pi * secondary_freq * freq * t_array / T)
         seasonal += small_waves
     
-    # Sekundäre kleinere Wellen
-    if secondary_freq > 0:
-        small_waves = A * 0.3 * np.sin(2 * np.pi * secondary_freq * freq * t_array / T)
-        seasonal += small_waves
-    
-    # Rest des Originalcodes fortsetzen...
+    # Trend-Komponente hinzufügen
     trend_component = trend * t_array / 365
     base_level = GW0 + seasonal + trend_component
     
     # Grundwasserstand initialisieren
-    GW = np.zeros(n)
-    GW[0] = base_level[0]
-    
-    # Dynamisches Verhalten konfigurieren
-    # Bei großem R_scale: mehr und stärkere Ereignisse
-    num_events = max(3, int(n / (150 - 100 * R_scale)))
-    event_indices = np.sort(np.random.choice(range(n), size=num_events, replace=False))
-    event_strengths = 0.5 + np.random.random(size=num_events) * (0.8 + R_scale * 2)
-    
-    # Parameter für das dynamische Verhalten
-    max_daily_change = 0.01 * A * (1 + 2 * R_scale)
-    rise_factor = max(0.2, min(5, 1 / (0.2 + Da/100)))  # Anstiegsgeschwindigkeit
-    decay_factor = max(0.1, min(3, 1 / (0.1 + Dd/100)))  # Abklinggeschwindigkeit
-    
-    # Ereigniseinfluss
-    event_influence = 0.0
-    
-    # Hauptschleife für die Ganglinie
-    for i in range(1, n):
-        # Neues Ereignis?
-        current_event = np.where(event_indices == i)[0]
-        if len(current_event) > 0:
-            # Stärkerer Einfluss bei höherem R_scale
-            event_influence += event_strengths[current_event[0]] * A * R_scale
+    GW = np.zeros_like(t_array, dtype=float)
+    if len(t_array) > 0:
+        GW[0] = GW0 + seasonal[0]
         
-        # Ereignisse klingen mit individueller Geschwindigkeit ab
-        decay_rate = 0.01 + 0.02 * decay_factor
-        event_influence *= (1.0 - decay_rate)
-        
-        # Zielniveau berechnen
-        target_level = base_level[i] + event_influence
-        
-        # Abweichung und Reaktion
-        deviation = GW[i-1] - target_level
-        
-        # Dynamische Änderungsrate basierend auf Abweichung
-        if deviation < 0:  # Anstieg nötig
-            # Schneller bei großem A und kleinem Da
-            rate = rise_factor * (0.05 + 0.1 * abs(deviation) / A)
-        else:  # Abfall nötig
-            # Schneller bei großem A und kleinem Dd
-            rate = decay_factor * (0.02 + 0.05 * abs(deviation) / A)
-        
-        # Tägliche Änderung berechnen und begrenzen
-        daily_change = -deviation * rate
-        daily_change = np.clip(daily_change, -max_daily_change, max_daily_change)
-        
-        # Hysterese für natürliche Mikroschwankungen
-        if abs(daily_change) < 0.2 * max_daily_change:
-            daily_change *= 0.5
-        
-        # Tägliche Änderung anwenden
-        GW[i] = GW[i-1] + daily_change
-        
-        # Zusätzliches Mikrorauschen - stärker bei hohem R_scale
-        GW[i] += np.random.normal(0, 0.003 * A * R_scale)
-    
-    # Glättung anpassen je nach R_scale
-    # Bei hohem R_scale: weniger Glättung für "wildere" Kurven
-    num_smoothing = max(1, min(4, int(4 - 3 * R_scale)))
-    window_size = max(3, min(23, int(17 * (1 - 0.7 * R_scale))))
-    window_size += (window_size % 2 == 0)  # Sicherstellen dass Fenstergröße ungerade
-    
-    # Glättung anwenden
-    for _ in range(num_smoothing):
-        GW_smoothed = np.zeros_like(GW)
-        for i in range(n):
-            start = max(0, i - window_size // 2)
-            end = min(n, i + window_size // 2 + 1)
-            GW_smoothed[i] = np.mean(GW[start:end])
-        GW = GW_smoothed.copy()
+        for i in range(1, len(t_array)):
+            disturbance = R_scale * R_base[i]
+            diff_from_GW0 = GW[i-1] - GW0
+            daily_change = 0
+            
+            if disturbance > 0 and Da > 0:
+                daily_change = (disturbance - diff_from_GW0) / Da
+            elif Dd > 0:
+                daily_change = -diff_from_GW0 / Dd
+                
+            GW[i] = GW[i-1] + daily_change
+            GW[i] += seasonal[i] - seasonal[i-1]
     
     return GW
+
 
 def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours, formel_params, progress, progress_info):
     hourly_interval = timedelta(hours=interval_hours)
@@ -583,11 +531,23 @@ def show_loading_screen():
     loading_window.after(2000, close_loading)
     loading_window.mainloop()
 
+def resource_path(relative_path):
+    """ Ermittelt den korrekten Pfad zu Ressourcen für PyInstaller und normale Python-Ausführung """
+    try:
+        # PyInstaller erstellt einen temporären Ordner und speichert den Pfad in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+
 # GUI erstellen
 def create_gui():
     show_loading_screen()
     root = tk.Tk()
     root.title("WaterGen")
+    logo_path = resource_path("icon.ico")
+    root.iconbitmap(logo_path)
     window_width = 620
     window_height = 700
     screen_width = root.winfo_screenwidth()
@@ -597,6 +557,22 @@ def create_gui():
     root.geometry(f"{window_width}x{window_height}+{x_pos}+{y_pos}")
     set_dark_title_bar(root)
     root.configure(bg=DISCORD_BG)
+
+   # Icon für Fenster und Taskleiste setzen
+    try:
+        root.iconbitmap(resource_path("icon.ico"))
+        
+        # Für Windows: Taskleisten-Icon konfigurieren
+        try:
+            from ctypes import windll
+            app_id = "ribeka.watergen.app.1.0"  # Eindeutige ID für Ihre App
+            windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+        except ImportError:
+            pass  # Ignorieren, wenn nicht auf Windows
+    except Exception as e:
+        print(f"Fehler beim Setzen des Icons: {e}")
+
+
 
     # Logo oben rechts
     try:
@@ -901,7 +877,7 @@ def create_gui():
         # Parameter für Grundwasserganglinie für die Plot-Vorschau
         # t und R_base für die Plot-Vorschau im Submenü
         np.random.seed(42) # Konsistenter Seed für die Submenü-Vorschau
-        t_preview = np.arange(0, 1000, 1) # Vorschau für 1000 Tage
+        t_preview = np.arange(0, 365, 1) # Vorschau für 365 Tage
         R_base_preview = np.random.normal(0, 1, size=len(t_preview))
 
 
