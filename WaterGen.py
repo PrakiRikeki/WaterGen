@@ -242,35 +242,52 @@ def create_rounded_rect(canvas, x1, y1, x2, y2, radius=15, **kwargs):
 # Die Formel-Parameter-Klasse (nur mit Grundwasser-Parametern)
 class FormelParameter:
     def __init__(self):
-        # Realistischere Standardwerte für die Grundwasserganglinie
-        self.GW0 = 10.0    # Grundniveau in Meter unter GOK (realistischer Ausgangswert)
-        self.A = 0.5       # Saisonale Amplitude (typischerweise 0.2-1.5m)
-        self.T = 365       # Periodendauer in Tagen
-        self.freq = 1.0    # Sinusfrequenz pro Periodendauer
-        self.Da = 45       # Anstiegsdauer in Tagen (realistischer: 30-60 Tage)
-        self.Dd = 120      # Abklingdauer in Tagen (realistischer: 90-180 Tage)
-        self.R_scale = 0.05  # Skalierung für zufällige Schwankungen (kleinerer Wert)
+        # Bestehende Parameter beibehalten
+        self.GW0 = 10.0  # Grundniveau in Meter unter GOK
+        self.A = 0.5     # Saisonale Amplitude
+        self.T = 365     # Periodendauer in Tagen
+        self.freq = 1.0  # Sinusfrequenz pro Periodendauer
+        self.Da = 45     # Anstiegsdauer in Tagen
+        self.Dd = 120    # Abklingdauer in Tagen
+        self.R_scale = 0.05  # Skalierung für zufällige Schwankungen
+        self.phase = 60      # Phasenverschiebung in Tagen
+        self.trend = 0.0     # Langzeittrend pro Jahr in Meter
         
-        # Neue Parameter für realistischere Grundwassermodellierung
-        self.phase = 60    # Phasenverschiebung in Tagen (Maximum im Frühjahr)
-        self.trend = 0.0   # Langzeittrend pro Jahr in Meter (Klimawandel-Effekt)
+        # Neue Parameter für die gewünschten Funktionen
+        self.curve_randomness = 0.2  # Variabilität der Wellenform (0-1)
+        self.secondary_freq = 3.0    # Frequenz der überlagerten kleineren Wellen
+
 
     def generiere_formel(self):
         return (f"Generierung basierend auf GW-Modell: GW0={self.GW0}, A={self.A}, T={self.T}, freq={self.freq}, "
-                f"Da={self.Da}, Dd={self.Dd}, R_scale={self.R_scale}, phase={self.phase}, trend={self.trend}")
+                f"Da={self.Da}, Dd={self.Dd}, R_scale={self.R_scale}, phase={self.phase}, trend={self.trend}, "
+                f"curve_randomness={self.curve_randomness}, secondary_freq={self.secondary_freq}")
+
 
 
 
 # Funktion zur Berechnung der Grundwasserganglinie
-def calculate_gw_series(t_array, GW0, A, T, freq, Da, Dd, R_scale, phase=60, trend=0.0):
-    """
-    Erzeugt flexible Grundwasserganglinien mit umfangreichen Einstellmöglichkeiten.
-    """
+def calculate_gw_series(t_array, GW0, A, T, freq, Da, Dd, R_scale, phase=60, trend=0.0, curve_randomness=0.2, secondary_freq=3.0):
     np.random.seed(42)
     n = len(t_array)
     
-    # Basis-Komponenten: Saison + Trend
-    seasonal = A * np.sin(2 * np.pi * freq * (t_array - phase) / T)
+    # Amplitudenvariationen für jeden Wellenzyklus
+    if curve_randomness > 0:
+        amplitude_variation = 1.0 + curve_randomness * np.random.normal(0, 1, size=n)
+        seasonal = A * np.sin(2 * np.pi * freq * (t_array - phase) / T) * amplitude_variation
+    else:
+        seasonal = A * np.sin(2 * np.pi * freq * (t_array - phase) / T)
+    
+    if secondary_freq > 0:
+        small_waves = A * 0.3 * np.sin(2 * np.pi * secondary_freq * freq * t_array / T)
+        seasonal += small_waves
+    
+    # Sekundäre kleinere Wellen
+    if secondary_freq > 0:
+        small_waves = A * 0.3 * np.sin(2 * np.pi * secondary_freq * freq * t_array / T)
+        seasonal += small_waves
+    
+    # Rest des Originalcodes fortsetzen...
     trend_component = trend * t_array / 365
     base_level = GW0 + seasonal + trend_component
     
@@ -365,10 +382,7 @@ def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours
 
     # Grundwasserganglinie basierend auf den Parametern berechnen
     try:
-        # Prüfe, ob die neuen Parameter vorhanden sind
-        phase = getattr(formel_params, 'phase', 60)  # Standardwert falls nicht vorhanden
-        trend = getattr(formel_params, 'trend', 0.0)  # Standardwert falls nicht vorhanden
-        
+
         grundwasser_series_daily = calculate_gw_series(
             t_days_array,
             formel_params.GW0,
@@ -378,9 +392,14 @@ def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours
             formel_params.Da,
             formel_params.Dd,
             formel_params.R_scale,
-            phase,
-            trend
+            formel_params.phase,
+            formel_params.trend,
+            formel_params.curve_randomness,
+            formel_params.secondary_freq
         )
+
+
+
 
     except Exception as e:
         print(f"Fehler bei Grundwasserreihen-Berechnung: {e}")
@@ -887,13 +906,25 @@ def create_gui():
 
 
         # Funktion zur Berechnung der Grundwasserganglinie für die Plot-Vorschau
-        def calculate_gw_preview(t_array, GW0, A, T, freq, Da, Dd, R_scale):
+        def calculate_gw_preview(t_array, GW0, A, T, freq, Da, Dd, R_scale, curve_randomness=0.2, secondary_freq=3.0):
              # np.random.seed(42) # Seed wird einmal am Anfang des Submenüs gesetzt
              # R_base wird außerhalb dieser Funktion im Submenü-Scope erzeugt
              # Stellen Sie sicher, dass T nicht Null ist, um Division durch Null zu vermeiden.
              if T == 0: T = 365 # Fallback-Wert
 
-             seasonal = A * np.sin(2 * np.pi * freq * t_array / T)
+             # Amplitudenvariationen für jeden Wellenzyklus
+             if curve_randomness > 0:
+                 amplitude_variation = 1.0 + curve_randomness * np.random.normal(0, 1, size=len(t_array))
+                 seasonal = A * np.sin(2 * np.pi * freq * t_array / T) * amplitude_variation
+             else:
+                 seasonal = A * np.sin(2 * np.pi * freq * t_array / T)
+            
+             # Sekundäre kleinere Wellen hinzufügen
+             if secondary_freq > 0:
+                 small_waves = A * 0.3 * np.sin(2 * np.pi * secondary_freq * freq * t_array / T)
+                 seasonal += small_waves
+
+
              GW = np.zeros_like(t_array, dtype=float)
 
              if len(t_array) > 0:
@@ -965,9 +996,12 @@ def create_gui():
             Da = var_Da.get()
             Dd = var_Dd.get()
             R_scale = var_R.get()
+            curve_randomness = var_randomness.get()
+            secondary_freq = var_secondary.get()
 
             # Nutze die calculate_gw_preview Funktion mit t_preview und R_base_preview
-            GW_preview = calculate_gw_preview(t_preview, GW0, A, T, freq, Da, Dd, R_scale)
+            GW_preview = calculate_gw_preview(t_preview, GW0, A, T, freq, Da, Dd, R_scale, 
+                                    curve_randomness, secondary_freq)
 
             # Plotten
             ax.plot(t_preview, GW_preview, color=DISCORD_GREEN, linewidth=1.5)
@@ -1029,12 +1063,14 @@ def create_gui():
         s_freq, var_freq = create_parameter_slider(parameter_frame, 4, "Sinusfrequenz/Periode:", 0.5, 3.0, formel_params.freq, precision=1)
         s_Da, var_Da = create_parameter_slider(parameter_frame, 5, "Anstiegsdauer (Tage):", 1, 200, formel_params.Da, precision=0)
         s_Dd, var_Dd = create_parameter_slider(parameter_frame, 6, "Abklingdauer (Tage):", 1, 200, formel_params.Dd, precision=0)
-        s_R, var_R = create_parameter_slider(parameter_frame, 7, "Zufällige Schwankungen (Skala):", 0.0, 0.5, formel_params.R_scale, precision=2)
+        s_R, var_R = create_parameter_slider(parameter_frame, 7, "Zufällige Schwankungen (Skala):", 0.0, 20, formel_params.R_scale, precision=2)
+        s_randomness, var_randomness = create_parameter_slider(parameter_frame, 8, "Wellenform-Variabilität:", 0.0, 1.0, formel_params.curve_randomness, precision=2)
+        s_secondary, var_secondary = create_parameter_slider(parameter_frame, 9, "Häufigkeit kleiner Wellen:", 0.0, 10.0, formel_params.secondary_freq, precision=1)
 
 
         # Button-Frame
         btn_frame = tk.Frame(parameter_frame, bg=DISCORD_BG)
-        btn_frame.grid(row=8, column=0, columnspan=3, pady=20, sticky="ew")
+        btn_frame.grid(row=10, column=0, columnspan=3, pady=20, sticky="ew")
 
         cancel_btn = tk.Button(btn_frame, text="Abbrechen", bg=DISCORD_DARK, fg=DISCORD_TEXT,
                             activebackground=DISCORD_DARKER, activeforeground=DISCORD_TEXT,
@@ -1060,6 +1096,8 @@ def create_gui():
                     formel_params.Da = var_Da.get()
                     formel_params.Dd = var_Dd.get()
                     formel_params.R_scale = var_R.get()
+                    formel_params.curve_randomness = var_randomness.get()
+                    formel_params.secondary_freq = var_secondary.get()
 
                     # Aktualisiere die Anzeige der Parameter-Beschreibung im Hauptfenster
                     formel_label.config(text=formel_params.generiere_formel())
