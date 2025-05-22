@@ -7,7 +7,7 @@
   },
   {
    "optionDest": "filenames",
-   "value": "C:/Users/e.missal/OneDrive - ribeka.com/Pc/Dokumente/Downloads/WaterGen.py"
+   "value": "C:/Users/e.missal/OneDrive - ribeka.com/Pc/Dokumente/GitHub/autorun/python/Datengenerierung/WaterGen.py"
   },
   {
    "optionDest": "onefile",
@@ -20,10 +20,6 @@
   {
    "optionDest": "icon_file",
    "value": "C:/Users/e.missal/OneDrive - ribeka.com/Pc/Dokumente/GitHub/autorun/python/Datengenerierung/icon.ico"
-  },
-  {
-   "optionDest": "datas",
-   "value": "C:/Users/e.missal/OneDrive - ribeka.com/Pc/Dokumente/GitHub/autorun/python/Datengenerierung/icon.ico;."
   },
   {
    "optionDest": "clean_build",
@@ -56,6 +52,10 @@
   {
    "optionDest": "bootloader_ignore_signals",
    "value": false
+  },
+  {
+   "optionDest": "datas",
+   "value": "C:/Users/e.missal/OneDrive - ribeka.com/Pc/Dokumente/GitHub/autorun/python/Datengenerierung/icon.ico;."
   },
   {
    "optionDest": "datas",
