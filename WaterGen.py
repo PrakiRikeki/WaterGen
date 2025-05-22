@@ -1,20 +1,36 @@
+# Grafische Benutzeroberfläche (GUI)
 import tkinter as tk
 from tkinter import ttk
 from tkcalendar import DateEntry
-from datetime import datetime, timedelta
+import tksvg
+
+# Datenverarbeitung
 import pandas as pd
 import csv
-import threading
-import math
-import random
-import ctypes
+import numpy as np
+
+# Datums- und Zeitfunktionen
+from datetime import datetime, timedelta
+
+# Visualisierung
 import matplotlib
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import numpy as np
-import os
+
+# Bildverarbeitung
 from PIL import Image, ImageTk, ImageDraw, ImageFont
-import tksvg
+
+# Systemfunktionen
+import threading
+import os
+import ctypes
+
+# Mathematik und Zufall
+import math
+import random
+
+
+
 
 # Verbesserte Farbpalette für konsistenten Darkmode
 DISCORD_BG = "#36393F"
