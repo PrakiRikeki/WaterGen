@@ -33,15 +33,15 @@ import random
 
 
 # Verbesserte Farbpalette für konsistenten Darkmode
-DISCORD_BG = "#36393F"
+DISCORD_BG = "#3a393f"
 DISCORD_DARK = "#2F3136"
 DISCORD_DARKER = "#202225"
-DISCORD_TEXT = "#DCDDDE"
+DISCORD_TEXT = "#FFFFFF"
 DISCORD_GRAY_TEXT = "#96989D"
 DISCORD_GREEN = "#4ee56e"
 DISCORD_INPUT_BG = "#40444B"
 BUTTON_COLOR = "#4ee56e"
-BUTTON_HOVER = "#3ac558"
+BUTTON_HOVER = "#3aff58"
 
 # Angepasste DateEntry-Klasse für Darkmode
 class DarkDateEntry(DateEntry):
@@ -275,7 +275,7 @@ class FormelParameter:
 
 
     def generiere_formel(self):
-        return (f"\n            Ganglinien Layout bearbeiten:\n")
+        return (f"\n\t\t               Ganglinien Layout bearbeiten\n")
 
 
 
@@ -725,8 +725,20 @@ def create_gui():
     zeitspanne_label = tk.Label(zeitspan_canvas, text="Zeitspanne", **label_style)
     zeitspan_canvas.create_window(20, 30, window=zeitspanne_label, anchor="w")
 
+    style = ttk.Style(root)
+    style.theme_use('clam')  # Das Theme 'clam' unterstützt umfangreichere Anpassungen
+
+    # Erweiterte Style-Konfiguration für DateEntry ohne Rahmen
+    style.configure('Custom.DateEntry', 
+                    fieldbackground=DISCORD_INPUT_BG,  # Hintergrund des Eingabefelds
+                    foreground=DISCORD_TEXT,           # Textfarbe
+                    borderwidth=0,                     # Kein Rahmen
+                    highlightthickness=0,              # Keinen Highlight-Rahmen
+                    relief="flat",                     # Flache Oberfläche ohne 3D-Effekt
+                    padding=2)                         # Etwas Abstand
+
     # Nur width angeben, keine anderen Style-Parameter überschreiben
-    startdatum = AutoDateEntry(zeitspan_canvas, width=12)
+    startdatum = AutoDateEntry(zeitspan_canvas, width=12, style='Custom.DateEntry')
     zeitspan_canvas.create_window(170, 30, window=startdatum)
 
     zeitspanne_anzeige = tk.Label(zeitspan_canvas, text="0 Jahre, 0 Monate, 0 Tage",
@@ -734,7 +746,7 @@ def create_gui():
     zeitspan_canvas.create_window(340, 30, window=zeitspanne_anzeige)
 
     # Nur width angeben, keine anderen Style-Parameter überschreiben
-    enddatum = AutoDateEntry(zeitspan_canvas, width=12)
+    enddatum = AutoDateEntry(zeitspan_canvas, width=12, style='Custom.DateEntry')
     zeitspan_canvas.create_window(500, 30, window=enddatum)
 
     intervall_label = tk.Label(zeitspan_canvas, text="Intervall (Stunden)", **label_style)
@@ -743,7 +755,6 @@ def create_gui():
     intervall_entry = tk.Entry(zeitspan_canvas, width=10, **entry_style)
     intervall_entry.insert(0, "1")
     zeitspan_canvas.create_window(200, 70, window=intervall_entry)
-
 
     def parse_flexible_date(date_string):
         """Parst deutsches Datum flexibel mit 2- oder 4-stelligem Jahr"""
@@ -1188,7 +1199,7 @@ def create_gui():
     button_size = 40
     button_canvas2 = tk.Canvas(formel_canvas, width=button_size, height=button_size,
                             bg=DISCORD_DARK, highlightthickness=0)
-    formel_canvas.create_window(530, 30, window=button_canvas2)
+    formel_canvas.create_window(390, 30, window=button_canvas2)
 
     # Abgerundeter Button-Hintergrund (ID speichern!)
     bg_rect = create_rounded_rect(button_canvas2, 0, 0, button_size, button_size,
@@ -1225,12 +1236,29 @@ def create_gui():
     create_rounded_rect(progress_canvas, 0, 0, 580, 80, radius=15,
                        fill=DISCORD_DARK, outline="")
 
-    progress = ttk.Progressbar(progress_canvas, orient="horizontal", length=540,
-                             mode="determinate", style="TProgressbar")
+    # Im Bereich der Style-Definition (vor dem Erstellen des progress_frame)
+    style = ttk.Style(root)
+    style.theme_use('clam')  # Das clam-Theme bietet bessere Anpassungsmöglichkeiten
+    style.configure("Custom.Horizontal.TProgressbar",
+                    troughcolor=DISCORD_INPUT_BG,  # Dunkelgrau wie Eingabefelder
+                    background=DISCORD_GREEN,      # Grüner Fortschrittsbalken
+                    troughrelief="flat",          # Flacher Hintergrund
+                    borderwidth=0,                # Kein Rand
+                    thickness=15,                 # Manteldicke 15px
+                    pbarrelief="flat")            # Flacher Fortschrittsbalken
+
+    # Im Bereich der Fortschrittsbalken-Erstellung
+    progress = ttk.Progressbar(progress_canvas, 
+                            orient="horizontal", 
+                            length=540,
+                            mode="determinate", 
+                            style="Custom.Horizontal.TProgressbar")
+
     progress_canvas.create_window(290, 30, window=progress)
 
     progress_info = tk.Label(progress_canvas, text="0/0 Werte generiert (0%)", **label_style)
     progress_canvas.create_window(290, 60, window=progress_info)
+    
 
     # 5. Start Button
     button_frame = tk.Frame(main_frame, bg=DISCORD_BG)
