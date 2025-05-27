@@ -115,59 +115,146 @@ class DarkDateEntry(DateEntry):
 # Verbesserte DateEntry-Klasse mit deutscher Datumsanzeige und Autovervollständigung
 class AutoDateEntry(DarkDateEntry):
     """
-    Erweitert die DarkDateEntry-Klasse um deutsche Datumsanzeige und 
+    Erweitert die DarkDateEntry-Klasse um deutsche Datumsanzeige und
     automatische Formatierung im Format dd.mm.yy
     """
+
     def __init__(self, master=None, **kwargs):
         # Deutsches Datumsformat als Standard setzen
         kwargs['locale'] = 'de_DE'
         kwargs['date_pattern'] = 'dd.mm.yy'
-
+        
         # Darkmode Stile für DateEntry
         style_options = {
             'background': DISCORD_INPUT_BG,
             'foreground': DISCORD_TEXT,
             'borderwidth': 0,
-            # Weitere Styling-Optionen...
         }
         
         kwargs.update(style_options)
         
         # Super-Konstruktor aufrufen
         super().__init__(master, **kwargs)
-
+        
         # Events binden
         self.bind("<KeyRelease>", self._format_date_entry)
-        self.unbind("<FocusOut>")
-        self.bind("<FocusOut>", self._smart_close_calendar)
+        
+        # Überschreibe die ursprüngliche drop_down Methode
+        self._original_drop_down = self.drop_down
+        self.drop_down = self._safe_drop_down
         
         self.last_value = ""
 
-    def _smart_close_calendar(self, event):
-        """Schließt den Kalender nur, wenn nicht auf Navigationselemente geklickt wird"""
-        if not hasattr(self, '_top_cal') or not self._top_cal.winfo_exists():
-            return
-            
-        # Mausposition und Widget unter der Maus bestimmen
-        x, y = self.winfo_pointerxy()
-        widget_under_mouse = self.winfo_containing(x, y)
-        
-        # Prüfen, ob Widget Teil des Kalenders ist
-        if widget_under_mouse:
-            # Rekursiv nach oben durch die Widget-Hierarchie gehen
-            parent = widget_under_mouse
-            while parent:
-                if parent == self._top_cal:
-                    # Maus ist über Kalenderelement -> nicht schließen
+    def _safe_drop_down(self):
+        """Sichere Version der drop_down Methode mit korrekter Positionierung"""
+        try:
+            # Prüfe ob Kalender bereits existiert und sichtbar ist
+            if hasattr(self, '_top_cal') and self._top_cal and self._top_cal.winfo_exists():
+                if self._top_cal.winfo_viewable():
+                    # Kalender ist bereits offen, schließe ihn
+                    self._top_cal.withdraw()
                     return
-                try:
-                    parent = parent.master
-                except:
-                    break
-                    
-        # Wenn wir hier ankommen, ist die Maus nicht über dem Kalender
-        self._top_cal.withdraw()
+                else:
+                    # Kalender existiert aber ist nicht sichtbar, zeige ihn
+                    self._position_calendar()
+                    self._top_cal.deiconify()
+                    return
+            
+            # Rufe die ursprüngliche Methode auf
+            self._original_drop_down()
+            
+            # Nach dem Öffnen des Kalenders, positioniere ihn korrekt
+            if hasattr(self, '_top_cal') and self._top_cal:
+                self._position_calendar()
+                self._configure_calendar_popup()
+                
+        except Exception as e:
+            print(f"Fehler beim Öffnen des Kalenders: {e}")
+            # Versuche den Kalender zurückzusetzen
+            self._reset_calendar()
 
+    def _position_calendar(self):
+        """Positioniert das Kalender-Popup korrekt relativ zum DateEntry-Widget"""
+        try:
+            if not hasattr(self, '_top_cal') or not self._top_cal:
+                return
+                
+            # Warte bis das Widget vollständig gerendert ist
+            self.update_idletasks()
+            
+            # Position des DateEntry-Widgets ermitteln
+            x = self.winfo_rootx()
+            y = self.winfo_rooty()
+            
+            # Höhe des DateEntry-Widgets
+            entry_height = self.winfo_height()
+            
+            # Kalender unter dem DateEntry positionieren
+            calendar_x = x
+            calendar_y = y + entry_height + 2  # 2px Abstand
+            
+            # Bildschirmgröße ermitteln
+            screen_width = self.winfo_screenwidth()
+            screen_height = self.winfo_screenheight()
+            
+            # Kalender-Größe ermitteln (Standardwerte falls nicht verfügbar)
+            try:
+                self._top_cal.update_idletasks()
+                calendar_width = self._top_cal.winfo_reqwidth()
+                calendar_height = self._top_cal.winfo_reqheight()
+            except:
+                calendar_width = 250  # Standardbreite
+                calendar_height = 200  # Standardhöhe
+            
+            # Prüfe ob Kalender rechts über den Bildschirm hinausragen würde
+            if calendar_x + calendar_width > screen_width:
+                calendar_x = screen_width - calendar_width - 10
+            
+            # Prüfe ob Kalender unten über den Bildschirm hinausragen würde
+            if calendar_y + calendar_height > screen_height:
+                # Kalender über dem DateEntry positionieren
+                calendar_y = y - calendar_height - 2
+                
+                # Falls auch oben nicht genug Platz ist
+                if calendar_y < 0:
+                    calendar_y = 10  # Mindestabstand vom oberen Bildschirmrand
+            
+            # Stelle sicher, dass die Position nicht negativ ist
+            calendar_x = max(0, calendar_x)
+            calendar_y = max(0, calendar_y)
+            
+            # Kalender positionieren
+            self._top_cal.geometry(f"+{calendar_x}+{calendar_y}")
+            
+        except Exception as e:
+            print(f"Fehler bei Kalender-Positionierung: {e}")
+
+    def _configure_calendar_popup(self):
+        """Konfiguriert das Kalender-Popup nach dem Öffnen"""
+        try:
+            if hasattr(self, '_top_cal') and self._top_cal:
+                # Stelle sicher, dass das Popup fokussierbar ist
+                self._top_cal.focus_set()
+                
+                # Bringe das Fenster in den Vordergrund
+                self._top_cal.lift()
+                self._top_cal.attributes('-topmost', True)
+                self._top_cal.attributes('-topmost', False)
+                
+                # Stelle sicher, dass das Fenster nicht minimiert werden kann
+                self._top_cal.resizable(False, False)
+                
+        except Exception as e:
+            print(f"Fehler bei Kalender-Konfiguration: {e}")
+
+    def _reset_calendar(self):
+        """Setzt den Kalender zurück bei Problemen"""
+        try:
+            if hasattr(self, '_top_cal') and self._top_cal:
+                self._top_cal.destroy()
+                delattr(self, '_top_cal')
+        except:
+            pass
 
     def _format_date_entry(self, event):
         """Automatische Formatierung der Datumseingabe im Format dd.mm.yy"""
@@ -183,7 +270,6 @@ class AutoDateEntry(DarkDateEntry):
 
         # Automatisches Einfügen von Punkten nach Tag und Monat
         parts = filtered.split('.')
-
         if len(parts) == 1 and parts[0]:
             # Tag eingeben
             if len(parts[0]) == 1 and parts[0].isdigit():
@@ -212,7 +298,7 @@ class AutoDateEntry(DarkDateEntry):
                     self.insert(0, self.last_value)
                     self.icursor(cursor_pos - 1)
                     return
-            filtered = day + '.' + month + '.'
+                filtered = day + '.' + month + '.'
         elif len(parts) == 3:
             # Tag, Monat und Jahr eingeben
             day, month, year = parts
@@ -224,6 +310,7 @@ class AutoDateEntry(DarkDateEntry):
         self.insert(0, filtered)
         self.icursor(len(filtered))
         self.last_value = filtered
+        
 
 # Dunkle Titelleiste für Windows
 def set_dark_title_bar(window):
