@@ -428,9 +428,9 @@ def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours
                     sheet_name = messstelle_id[:31] if len(messstelle_id) > 31 else messstelle_id
                     # Entfernen Sie ungültige Zeichen für Sheetnamen, falls vorhanden (Excel-Limitierungen beachten)
                     sheet_name = "".join([c for c in sheet_name if c.isalnum() or c in (' ', '_', '-')])
-                     # Stellen Sie sicher, dass der Name nicht leer ist oder mit bestimmten Zeichen beginnt/endet
+                    # Stellen Sie sicher, dass der Name nicht leer ist oder mit bestimmten Zeichen beginnt/endet
                     if not sheet_name or sheet_name[0] in ("'", "=") or any(char in sheet_name for char in ':\\/?*[]'):
-                         sheet_name = f"Messstelle_{idx+1}" # Fallback Name
+                        sheet_name = f"Messstelle_{idx+1}" # Fallback Name
 
 
                     df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
@@ -529,7 +529,7 @@ def show_loading_screen():
                 fg=DISCORD_TEXT, bg=DISCORD_DARKER).pack(pady=(60, 20))
 
     loading_label = tk.Label(loading_window, text="Anwendung wird geladen...",
-                           fg=DISCORD_TEXT, bg=DISCORD_DARKER, font=("Arial", 12))
+    fg=DISCORD_TEXT, bg=DISCORD_DARKER, font=("Arial", 12))
     loading_label.pack(pady=10)
 
     progress = ttk.Progressbar(loading_window, orient="horizontal", length=300, mode="indeterminate")
@@ -574,7 +574,7 @@ def create_gui():
     set_dark_title_bar(root)
     root.configure(bg=DISCORD_BG)
 
-   # Icon für Fenster und Taskleiste setzen
+    # Icon für Fenster und Taskleiste setzen
     try:
         root.iconbitmap(resource_path("icon.ico"))
         
@@ -715,27 +715,25 @@ def create_gui():
     zeitspan_frame = tk.Frame(main_frame, bg=DISCORD_BG)
     zeitspan_frame.pack(fill=tk.X, pady=(0, 10))
 
-    zeitspan_canvas = tk.Canvas(zeitspan_frame, bg=DISCORD_BG, height=100,
-                              highlightthickness=0, width=580)
+    zeitspan_canvas = tk.Canvas(zeitspan_frame, bg=DISCORD_BG, height=100, highlightthickness=0, width=580)
     zeitspan_canvas.pack(fill=tk.X)
 
-    create_rounded_rect(zeitspan_canvas, 0, 0, 580, 100, radius=15,
-                       fill=DISCORD_DARK, outline="")
+    create_rounded_rect(zeitspan_canvas, 0, 0, 580, 100, radius=15, fill=DISCORD_DARK, outline="")
 
     zeitspanne_label = tk.Label(zeitspan_canvas, text="Zeitspanne", **label_style)
     zeitspan_canvas.create_window(20, 30, window=zeitspanne_label, anchor="w")
 
+    # Entfernen Sie redundante Style-Definitionen und behalten Sie nur eine:
     style = ttk.Style(root)
-    style.theme_use('clam')  # Das Theme 'clam' unterstützt umfangreichere Anpassungen
+    style.theme_use('clam')
 
-    # Erweiterte Style-Konfiguration für DateEntry ohne Rahmen
-    style.configure('Custom.DateEntry', 
-                    fieldbackground=DISCORD_INPUT_BG,  # Hintergrund des Eingabefelds
-                    foreground=DISCORD_TEXT,           # Textfarbe
-                    borderwidth=0,                     # Kein Rahmen
-                    highlightthickness=0,              # Keinen Highlight-Rahmen
-                    relief="flat",                     # Flache Oberfläche ohne 3D-Effekt
-                    padding=2)                         # Etwas Abstand
+    # Vereinfachte DateEntry-Konfiguration
+    style.configure('Custom.DateEntry',
+                    fieldbackground=DISCORD_INPUT_BG,
+                    foreground=DISCORD_TEXT,
+                    borderwidth=0,
+                    relief="flat")
+
 
     # Nur width angeben, keine anderen Style-Parameter überschreiben
     startdatum = AutoDateEntry(zeitspan_canvas, width=12, style='Custom.DateEntry')
@@ -800,16 +798,16 @@ def create_gui():
 
             stunden_intervall_str = intervall_entry.get()
             if not stunden_intervall_str:
-                 raise ValueError("Intervall darf nicht leer sein.")
+                raise ValueError("Intervall darf nicht leer sein.")
             try:
-                 stunden_intervall = float(stunden_intervall_str)
+                stunden_intervall = float(stunden_intervall_str)
             except ValueError:
-                 raise ValueError("Intervall muss eine Zahl sein.")
+                raise ValueError("Intervall muss eine Zahl sein.")
 
 
             if stunden_intervall <= 0:
-                 werte_info.config(text="Fehler: Intervall > 0")
-                 return 0
+                werte_info.config(text="Fehler: Intervall > 0")
+                return 0
 
             # Anzahl der Messwerte pro Messstelle
             # Messpunkte sind am Startdatum + n * Intervall, bis <= Enddatum
@@ -827,8 +825,8 @@ def create_gui():
             interval_seconds = stunden_intervall * 3600
 
             if interval_seconds <= 0:
-                 werte_info.config(text="Fehler: Intervall > 0")
-                 return 0
+                werte_info.config(text="Fehler: Intervall > 0")
+                return 0
 
             # Anzahl der Messpunkte = floor(Dauer / Intervall) + 1 (inklusive Startpunkt)
             messwerte_pro_messstelle = math.floor(duration_seconds / interval_seconds) + 1
@@ -846,10 +844,34 @@ def create_gui():
             werte_info.config(text="Zu generierende Werte: Berechnung nicht möglich")
             return 0
 
-    startdatum.bind("<FocusOut>", lambda e: berechne_zeitspanne())
-    startdatum.bind("<FocusOut>", lambda e: berechne_zeitspanne())
-    enddatum.bind("<FocusOut>", lambda e: berechne_zeitspanne())
-    intervall_entry.bind("<FocusOut>", lambda e: berechne_werte_anzahl())
+
+
+    # Kombinierte Berechnungsfunktion
+    def berechne_alles(event=None):
+        berechne_zeitspanne()
+        berechne_werte_anzahl()
+
+    # Mausbewegung im Zeitspannen-Frame erkennen
+    zeitspan_frame.bind("<Motion>", berechne_alles)
+
+    # Timer für sekündliche Aktualisierung
+    def update_berechnungen():
+        berechne_alles()
+        root.after(1000, update_berechnungen)
+
+    # Timer starten
+    root.after(1000, update_berechnungen)
+
+    # Focus-Event-Bindungen hinzufügen
+    startdatum.bind("<FocusOut>", lambda e: berechne_alles())
+    enddatum.bind("<FocusOut>", lambda e: berechne_alles())
+    intervall_entry.bind("<FocusOut>", lambda e: berechne_alles())
+    startdatum.bind("<FocusIn>", lambda e: berechne_alles())
+    enddatum.bind("<FocusIn>", lambda e: berechne_alles())
+    intervall_entry.bind("<FocusIn>", lambda e: berechne_alles())
+
+
+
 
     # 2. Messstellen
     messstellen_frame = tk.Frame(main_frame, bg=DISCORD_BG)
@@ -1228,6 +1250,9 @@ def create_gui():
     # 4. Fortschrittsbalken
     progress_frame = tk.Frame(main_frame, bg=DISCORD_BG)
     progress_frame.pack(fill=tk.X, pady=(0, 10))
+    progress_frame.pack_forget()  # Initial verstecken
+
+
 
     progress_canvas = tk.Canvas(progress_frame, bg=DISCORD_BG, height=80,
                              highlightthickness=0, width=580)
@@ -1258,6 +1283,7 @@ def create_gui():
 
     progress_info = tk.Label(progress_canvas, text="0/0 Werte generiert (0%)", **label_style)
     progress_canvas.create_window(290, 60, window=progress_info)
+
     
 
     # 5. Start Button
