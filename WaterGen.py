@@ -1034,7 +1034,7 @@ def create_gui():
         submenu = tk.Toplevel(root)
         submenu.title("Formel-Einstellungen")
 
-        submenu_width = 1050
+        submenu_width = 1250
         submenu_height = 600
         sub_x_pos = int((screen_width/2) - (submenu_width/2))
         sub_y_pos = int((screen_height/2) - (submenu_height/2))
@@ -1108,7 +1108,7 @@ def create_gui():
 
 
         # Erstelle die Figure für den Plot
-        fig = Figure(figsize=(5, 4), dpi=100, facecolor=DISCORD_DARKER)
+        fig = Figure(figsize=(7, 5), dpi=100, facecolor=DISCORD_DARKER)
         ax = fig.add_subplot(111)
         ax.set_facecolor(DISCORD_DARKER)
         ax.spines['bottom'].set_color(DISCORD_TEXT)
@@ -1191,30 +1191,29 @@ def create_gui():
         def create_parameter_slider(parent, row, text, from_, to_, default, precision=1):
             frame = tk.Frame(parent, bg=DISCORD_BG)
             frame.grid(row=row, column=0, columnspan=3, pady=5, sticky="ew")
-
             label = tk.Label(frame, text=text, bg=DISCORD_BG, fg=DISCORD_TEXT, width=30, anchor="w")
             label.grid(row=0, column=0, padx=(0, 10))
 
-            # Tkinter Variable für den Wert
             value_var = tk.DoubleVar(value=default)
-
+            last_value = [default]  # Liste verwenden für Referenz
+            
             def on_slider_change(event):
-                # Aktualisiere die Anzeige des Werts neben dem Slider
-                value_label.config(text=f"{value_var.get():.{precision}f}")
-                update_graph() # Aktualisiere den Plot
-
-            # Slider erstellen
-            slider = ttk.Scale(frame, from_=from_, to=to_, variable=value_var, # Nutze die Tkinter Variable
-                            command=on_slider_change, length=200, style="TScale") # Binde an on_slider_change
+                current_value = round(value_var.get(), precision)
+                # Nur aktualisieren wenn sich der Wert tatsächlich geändert hat
+                if current_value != last_value[0]:
+                    last_value[0] = current_value
+                    value_label.config(text=f"{current_value:.{precision}f}")
+                    update_graph()
+            
+            slider = ttk.Scale(frame, from_=from_, to=to_, variable=value_var,
+                            command=on_slider_change, length=200, style="TScale")
             slider.grid(row=0, column=1)
-
-            # Label zur Anzeige des Slider-Werts
-            # Initialisiere das Label mit dem Standardwert im richtigen Format
+            
             value_label = tk.Label(frame, text=f"{default:.{precision}f}",
-                                   bg=DISCORD_BG, fg=DISCORD_TEXT, width=5)
+                                bg=DISCORD_BG, fg=DISCORD_TEXT, width=5)
             value_label.grid(row=0, column=2, padx=(10, 0))
-
-            return slider, value_var # Gebe auch die Variable zurück
+            
+            return slider, value_var
 
 
         # Grundwasserparameter-Slider erstellen
@@ -1225,7 +1224,7 @@ def create_gui():
         s_freq, var_freq = create_parameter_slider(parameter_frame, 4, "Sinusfrequenz/Periode:", 0.5, 3.0, formel_params.freq, precision=1)
         s_Da, var_Da = create_parameter_slider(parameter_frame, 5, "Anstiegsdauer (Tage):", 1, 200, formel_params.Da, precision=0)
         s_Dd, var_Dd = create_parameter_slider(parameter_frame, 6, "Abklingdauer (Tage):", 1, 200, formel_params.Dd, precision=0)
-        s_R, var_R = create_parameter_slider(parameter_frame, 7, "Zufällige Schwankungen (Skala):", 0.0, 20, formel_params.R_scale, precision=2)
+        s_R, var_R = create_parameter_slider(parameter_frame, 7, "Zufällige Schwankungen (Skala):", 0.0, 1.0, formel_params.R_scale, precision=2)
         s_randomness, var_randomness = create_parameter_slider(parameter_frame, 8, "Wellenform-Variabilität:", 0.0, 1.0, formel_params.curve_randomness, precision=2)
         s_secondary, var_secondary = create_parameter_slider(parameter_frame, 9, "Häufigkeit kleiner Wellen:", 0.0, 10.0, formel_params.secondary_freq, precision=1)
 
@@ -1337,8 +1336,6 @@ def create_gui():
     # 4. Fortschrittsbalken
     progress_frame = tk.Frame(main_frame, bg=DISCORD_BG)
     progress_frame.pack(fill=tk.X, pady=(0, 10))
-    progress_frame.pack_forget()  # Initial verstecken
-
 
 
     progress_canvas = tk.Canvas(progress_frame, bg=DISCORD_BG, height=80,
