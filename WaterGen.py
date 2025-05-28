@@ -24,6 +24,8 @@ from PIL import Image, ImageTk, ImageDraw, ImageFont
 import threading
 import os
 import ctypes
+from screeninfo import get_monitors
+import webbrowser
 
 # Mathematik und Zufall
 import math
@@ -174,7 +176,7 @@ class AutoDateEntry(DarkDateEntry):
             self._reset_calendar()
 
     def _position_calendar(self):
-        """Positioniert das Kalender-Popup korrekt relativ zum DateEntry-Widget"""
+        """Positioniert das Kalender-Popup korrekt relativ zum DateEntry-Widget, unterstützt mehrere Monitore"""
         try:
             if not hasattr(self, '_top_cal') or not self._top_cal:
                 return
@@ -193,11 +195,43 @@ class AutoDateEntry(DarkDateEntry):
             calendar_x = x
             calendar_y = y + entry_height + 2  # 2px Abstand
             
-            # Bildschirmgröße ermitteln
-            screen_width = self.winfo_screenwidth()
-            screen_height = self.winfo_screenheight()
+            # Monitor ermitteln, auf dem sich das DateEntry-Widget befindet
+            monitor_info = self.winfo_toplevel().winfo_screen()
             
-            # Kalender-Größe ermitteln (Standardwerte falls nicht verfügbar)
+            # Hole Informationen über alle verfügbaren Monitore 
+            try:
+                monitors = get_monitors()
+                
+                # Bestimme den aktuellen Monitor
+                current_monitor = None
+                widget_center_x = x + self.winfo_width() / 2
+                widget_center_y = y + self.winfo_height() / 2
+                
+                for m in monitors:
+                    if (m.x <= widget_center_x <= m.x + m.width and 
+                        m.y <= widget_center_y <= m.y + m.height):
+                        current_monitor = m
+                        break
+                        
+                if current_monitor:
+                    screen_width = current_monitor.width
+                    screen_height = current_monitor.height
+                    screen_x = current_monitor.x
+                    screen_y = current_monitor.y
+                else:
+                    # Fallback zu Hauptbildschirm
+                    screen_width = self.winfo_screenwidth()
+                    screen_height = self.winfo_screenheight()
+                    screen_x = 0
+                    screen_y = 0
+            except:
+                # Fallback falls screeninfo nicht verfügbar
+                screen_width = self.winfo_screenwidth()
+                screen_height = self.winfo_screenheight()
+                screen_x = 0
+                screen_y = 0
+            
+            # Kalender-Größe ermitteln
             try:
                 self._top_cal.update_idletasks()
                 calendar_width = self._top_cal.winfo_reqwidth()
@@ -206,25 +240,25 @@ class AutoDateEntry(DarkDateEntry):
                 calendar_width = 250  # Standardbreite
                 calendar_height = 200  # Standardhöhe
             
-            # Prüfe ob Kalender rechts über den Bildschirm hinausragen würde
-            if calendar_x + calendar_width > screen_width:
-                calendar_x = screen_width - calendar_width - 10
+            # Prüfe ob Kalender rechts über den Monitor hinausragen würde
+            if calendar_x + calendar_width > screen_x + screen_width:
+                calendar_x = screen_x + screen_width - calendar_width - 10
             
-            # Prüfe ob Kalender unten über den Bildschirm hinausragen würde
-            if calendar_y + calendar_height > screen_height:
+            # Prüfe ob Kalender unten über den Monitor hinausragen würde
+            if calendar_y + calendar_height > screen_y + screen_height:
                 # Kalender über dem DateEntry positionieren
                 calendar_y = y - calendar_height - 2
                 
                 # Falls auch oben nicht genug Platz ist
-                if calendar_y < 0:
-                    calendar_y = 10  # Mindestabstand vom oberen Bildschirmrand
+                if calendar_y < screen_y:
+                    calendar_y = screen_y + 10  # Mindestabstand vom oberen Bildschirmrand
             
-            # Stelle sicher, dass die Position nicht negativ ist
-            calendar_x = max(0, calendar_x)
-            calendar_y = max(0, calendar_y)
+            # Stelle sicher, dass die Position innerhalb des Monitors liegt
+            calendar_x = max(screen_x, min(calendar_x, screen_x + screen_width - calendar_width))
+            calendar_y = max(screen_y, min(calendar_y, screen_y + screen_height - calendar_height))
             
             # Kalender positionieren
-            self._top_cal.geometry(f"+{calendar_x}+{calendar_y}")
+            self._top_cal.geometry(f"+{int(calendar_x)}+{int(calendar_y)}")
             
         except Exception as e:
             print(f"Fehler bei Kalender-Positionierung: {e}")
@@ -257,7 +291,7 @@ class AutoDateEntry(DarkDateEntry):
             pass
 
     def _format_date_entry(self, event):
-        """Automatische Formatierung der Datumseingabe im Format dd.mm.yy"""
+        """Automatische Formatierung der Datumseingabe"""
         if event.keysym in ('BackSpace', 'Delete', 'Left', 'Right', 'Up', 'Down'):
             self.last_value = self.get()
             return
@@ -265,46 +299,58 @@ class AutoDateEntry(DarkDateEntry):
         current = self.get()
         cursor_pos = self.index(tk.INSERT)
 
-        # Entferne alle nicht-ziffern außer Punkten
-        filtered = ''.join(c for c in current if c.isdigit() or c == '.')
+        # Nur bei FocusOut das Datum vollständig formatieren
+        if event.type == '10':  # FocusOut event
+            try:
+                # Entferne alle nicht-ziffern außer Punkten
+                filtered = ''.join(c for c in current if c.isdigit() or c == '.')
+                parts = filtered.split('.')
 
-        # Automatisches Einfügen von Punkten nach Tag und Monat
+                if len(parts) == 3:
+                    day, month, year = parts
+
+                    # Tag formatieren
+                    day = str(int(day) if int(day) > 0 else 1).zfill(2)
+                    if int(day) > 31: day = '31'
+                    
+                    # Monat formatieren
+                    month = str(int(month) if int(month) > 0 else 1).zfill(2)
+                    if int(month) > 12: month = '12'
+
+                    # Jahr formatieren
+                    current_year = datetime.now().year
+                    if len(year) == 1:
+                        year = str(current_year)[-2:] + year
+                    elif len(year) == 2:
+                        year = str(current_year)[:2] + year
+                    elif len(year) == 3:
+                        year = str(current_year)[:1] + year
+                    elif len(year) > 4:
+                        year = year[:4]
+
+                    formatted = f"{day}.{month}.{year}"
+                    if len(year) == 2:
+                        formatted = f"{day}.{month}.20{year}"
+
+                    self.delete(0, tk.END)
+                    self.insert(0, formatted)
+                    self.last_value = formatted
+                    return
+
+            except ValueError:
+                pass
+
+        # Normale Eingabe-Formatierung während des Tippens
+        filtered = ''.join(c for c in current if c.isdigit() or c == '.')
         parts = filtered.split('.')
+
         if len(parts) == 1 and parts[0]:
-            # Tag eingeben
-            if len(parts[0]) == 1 and parts[0].isdigit():
-                if int(parts[0]) > 3:
-                    # Wenn erste Ziffer größer als 3, füge führende Null hinzu
-                    filtered = '0' + parts[0] + '.'
-            elif len(parts[0]) == 2:
-                day = int(parts[0])
-                if 1 <= day <= 31:
-                    filtered = parts[0] + '.'
-                else:
-                    self.delete(0, tk.END)
-                    self.insert(0, self.last_value)
-                    self.icursor(cursor_pos - 1)
-                    return
+            if len(parts[0]) == 2:
+                filtered = parts[0] + '.'
         elif len(parts) == 2:
-            # Tag und Monat eingeben
             day, month = parts
-            if len(month) == 1 and month.isdigit():
-                if int(month) > 1:
-                    month = '0' + month
-            if month and len(month) == 2:
-                m = int(month)
-                if not (1 <= m <= 12):
-                    self.delete(0, tk.END)
-                    self.insert(0, self.last_value)
-                    self.icursor(cursor_pos - 1)
-                    return
+            if len(month) == 2:
                 filtered = day + '.' + month + '.'
-        elif len(parts) == 3:
-            # Tag, Monat und Jahr eingeben
-            day, month, year = parts
-            if len(year) > 2:
-                year = year[-2:]
-            filtered = day + '.' + month + '.' + year
 
         self.delete(0, tk.END)
         self.insert(0, filtered)
@@ -328,17 +374,17 @@ def set_dark_title_bar(window):
 # Funktion für abgerundete Rechtecke
 def create_rounded_rect(canvas, x1, y1, x2, y2, radius=15, **kwargs):
     points = [x1+radius, y1,
-             x2-radius, y1,
-             x2, y1,
-             x2, y1+radius,
-             x2, y2-radius,
-             x2, y2,
-             x2-radius, y2,
-             x1+radius, y2,
-             x1, y2,
-             x1, y2-radius,
-             x1, y1+radius,
-             x1, y1]
+            x2-radius, y1,
+            x2, y1,
+            x2, y1+radius,
+            x2, y2-radius,
+            x2, y2,
+            x2-radius, y2,
+            x1+radius, y2,
+            x1, y2,
+            x1, y2-radius,
+            x1, y1+radius,
+            x1, y1]
     return canvas.create_polygon(points, **kwargs, smooth=True)
 
 
@@ -807,6 +853,7 @@ def create_gui():
 
 
     # 1. Zeitspanne und Intervall
+    
     zeitspan_frame = tk.Frame(main_frame, bg=DISCORD_BG)
     zeitspan_frame.pack(fill=tk.X, pady=(0, 10))
 
@@ -842,12 +889,64 @@ def create_gui():
     enddatum = AutoDateEntry(zeitspan_canvas, width=12, style='Custom.DateEntry')
     zeitspan_canvas.create_window(500, 30, window=enddatum)
 
-    intervall_label = tk.Label(zeitspan_canvas, text="Intervall (Stunden)", **label_style)
+    intervall_label = tk.Label(zeitspan_canvas, text="Intervall [Std.]", **label_style)
     zeitspan_canvas.create_window(20, 70, window=intervall_label, anchor="w")
 
-    intervall_entry = tk.Entry(zeitspan_canvas, width=10, **entry_style)
+    intervall_entry = tk.Entry(zeitspan_canvas, width=11, **entry_style)
     intervall_entry.insert(0, "1")
-    zeitspan_canvas.create_window(200, 70, window=intervall_entry)
+    zeitspan_canvas.create_window(170, 70, window=intervall_entry)
+    
+    
+    
+    # 1,5. CVS und Excel Schalter
+
+    # Format-Switch neben Start-Button hinzufügen
+    switch_label = tk.Label(zeitspan_canvas, text="Ausgabeformat", **label_style)
+    zeitspan_canvas.create_window(255, 70, window=switch_label, anchor="w")
+    
+    format_switch_canvas = tk.Canvas(zeitspan_canvas, width=100, height=30,
+                                bg=DISCORD_DARK, highlightthickness=0)
+    zeitspan_canvas.create_window(497, 70, window=format_switch_canvas)
+
+    # Variable zum Speichern des Formats
+    root.output_format = "csv"  # Standard ist CSV
+
+    # Switch-Hintergrund erstellen - rot für CSV
+    switch_bg = create_rounded_rect(format_switch_canvas, 0, 0, 100, 30,
+                            radius=15, fill="#D755FF")  # Rot für CSV
+
+    # Toggle-Button (weißer Kreis)
+    button_size = 20
+    switch_button = format_switch_canvas.create_oval(5, 5, 5 + button_size, 5 + button_size,
+                                            fill="white", outline="")
+
+    # Format-Text hinzufügen
+    switch_text = format_switch_canvas.create_text(50, 15, text="CSV",
+                                            fill="white", font=("Arial", 10, "bold"))
+
+    # Funktion zum Umschalten des Formats
+    def toggle_format(event=None):
+        button_size = 20
+        if root.output_format == "csv":
+            # Zu Excel wechseln
+            root.output_format = "excel"
+            format_switch_canvas.itemconfig(switch_bg, fill="#42E5EB")  
+            format_switch_canvas.coords(switch_button, 75, 5, 75 + button_size, 5 + button_size)
+            format_switch_canvas.itemconfig(switch_text, text="Excel")
+        else:
+            # Zu CSV wechseln
+            root.output_format = "csv"
+            format_switch_canvas.itemconfig(switch_bg, fill="#D755FF")
+            format_switch_canvas.coords(switch_button, 5, 5, 5 + button_size, 5 + button_size)
+            format_switch_canvas.itemconfig(switch_text, text="CSV")
+
+    # Klick-Event binden
+    format_switch_canvas.bind("<Button-1>", toggle_format)
+    
+
+
+
+
 
     def parse_flexible_date(date_string):
         """Parst deutsches Datum flexibel mit 2- oder 4-stelligem Jahr"""
@@ -891,7 +990,7 @@ def create_gui():
             # Anzahl der Stunden: (end - start).total_seconds() / 3600
             total_hours = int(delta.total_seconds() / 3600) # Gesamtzahl der vollen Stunden
 
-            stunden_intervall_str = intervall_entry.get()
+            stunden_intervall_str = intervall_entry.get().replace(',', '.')
             if not stunden_intervall_str:
                 raise ValueError("Intervall darf nicht leer sein.")
             try:
@@ -964,9 +1063,8 @@ def create_gui():
     startdatum.bind("<FocusIn>", lambda e: berechne_alles())
     enddatum.bind("<FocusIn>", lambda e: berechne_alles())
     intervall_entry.bind("<FocusIn>", lambda e: berechne_alles())
-
-
-
+    
+    
 
     # 2. Messstellen
     messstellen_frame = tk.Frame(main_frame, bg=DISCORD_BG)
@@ -1400,51 +1498,11 @@ def create_gui():
                                                      fill=DISCORD_TEXT,
                                                      font=("Arial", 14, "bold"))
 
-    werte_info = tk.Label(button_canvas, text="Zu generierende Werte: -",
+    werte_info = tk.Label(button_canvas, text="Zu generierende Werte pro Messstelle: -",
                         bg=DISCORD_DARK, fg=DISCORD_TEXT, font=('Arial', 11))
     button_canvas.create_window(290, 80, window=werte_info)
 
 
-    # 6. Toggle Switch für CSV und Excel
-
-    # Format-Switch neben Start-Button hinzufügen
-    format_switch_canvas = tk.Canvas(button_canvas, width=100, height=30,
-                                bg=DISCORD_DARK, highlightthickness=0)
-    button_canvas.create_window(440, 40, window=format_switch_canvas)
-
-    # Variable zum Speichern des Formats
-    root.output_format = "csv"  # Standard ist CSV
-
-    # Switch-Hintergrund erstellen - rot für CSV
-    switch_bg = create_rounded_rect(format_switch_canvas, 0, 0, 100, 30,
-                            radius=15, fill="#FF5555")  # Rot für CSV
-
-    # Toggle-Button (weißer Kreis)
-    button_size = 20
-    switch_button = format_switch_canvas.create_oval(5, 5, 5 + button_size, 5 + button_size,
-                                            fill="white", outline="")
-
-    # Format-Text hinzufügen
-    switch_text = format_switch_canvas.create_text(50, 15, text="CSV",
-                                            fill="white", font=("Arial", 10, "bold"))
-
-    # Funktion zum Umschalten des Formats
-    def toggle_format(event=None):
-        if root.output_format == "csv":
-            # Zu Excel wechseln
-            root.output_format = "excel"
-            format_switch_canvas.itemconfig(switch_bg, fill=DISCORD_GREEN)
-            format_switch_canvas.coords(switch_button, 75, 5, 75 + button_size, 5 + button_size)
-            format_switch_canvas.itemconfig(switch_text, text="Excel")
-        else:
-            # Zu CSV wechseln
-            root.output_format = "csv"
-            format_switch_canvas.itemconfig(switch_bg, fill="#FF5555")
-            format_switch_canvas.coords(switch_button, 5, 5, 5 + button_size, 5 + button_size)
-            format_switch_canvas.itemconfig(switch_text, text="CSV")
-
-    # Klick-Event binden
-    format_switch_canvas.bind("<Button-1>", toggle_format)
 
 
     # Start-Button Funktion
@@ -1482,7 +1540,6 @@ def create_gui():
 
             # Text aus dem Messstellen-Textfeld holen und validieren
             messstellen_text_inhalt = messstellen_text.get("1.0", tk.END).strip()
-            valid, result = validiere_messstellen(messstellen_text_inhalt)
             if not valid:
                 raise ValueError(result)
 
@@ -1518,13 +1575,19 @@ def create_gui():
     start_button_canvas.bind("<Enter>", on_button_hover)
     start_button_canvas.bind("<Leave>", on_button_leave)
 
-    # Copyright-Hinweis unten
+    # Copyright-Hinweis unten mit Hyperlink
+    
+    def open_website(event):
+        webbrowser.open("https://www.ribeka.com")
+    
     copyright_label = tk.Label(root,
-                             text=f" © Copyright ribeka GmbH 2025",
-                             bg=DISCORD_BG,
-                             fg=DISCORD_GRAY_TEXT,
-                             font=('Arial', 9))
+                            text=f" © Copyright ribeka GmbH 2025",
+                            bg=DISCORD_BG,
+                            fg=DISCORD_GRAY_TEXT,
+                            font=('Arial', 9, 'normal'),
+                            cursor="hand2") 
     copyright_label.place(relx=0.5, rely=1.0, anchor='s', y=-5)
+    copyright_label.bind("<Button-1>", open_website)
 
     # Standard-Werte
     today = datetime.now()
