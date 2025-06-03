@@ -59,10 +59,6 @@
   },
   {
    "optionDest": "datas",
-   "value": "C:/Users/e.missal/OneDrive - ribeka.com/Pc/Dokumente/GitHub/autorun/python/Datengenerierung/ribeka 55mm breit_white.png;."
-  },
-  {
-   "optionDest": "datas",
    "value": "C:/Users/e.missal/AppData/Roaming/Python/Python313t/site-packages/matplotlib/mpl-data;matplotlib/mpl-data"
   },
   {
@@ -119,7 +115,19 @@
   },
   {
    "optionDest": "datas",
-   "value": "C:/Users/e.missal/OneDrive - ribeka.com/Pc/Dokumente/Downloads/WaterGen_Logo.png;."
+   "value": "C:/Users/e.missal/OneDrive - ribeka.com/Pc/Dokumente/GitHub/WaterGen/ribeka_Animation.gif;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "C:/Users/e.missal/OneDrive - ribeka.com/Pc/Dokumente/GitHub/WaterGen/ribeka_Logo.png;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "C:/Users/e.missal/OneDrive - ribeka.com/Pc/Dokumente/GitHub/WaterGen/WaterGen_Animation.gif;."
+  },
+  {
+   "optionDest": "datas",
+   "value": "C:/Users/e.missal/OneDrive - ribeka.com/Pc/Dokumente/GitHub/WaterGen/WaterGen_Logo.png;."
   }
  ],
  "nonPyinstallerOptions": {

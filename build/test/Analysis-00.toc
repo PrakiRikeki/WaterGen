@@ -16,7 +16,7 @@
  {},
  0,
  [],
- [('ribeka 55mm breit_white.png',
+ [('ribeka_Logo.png',
    'C:\\Users\\e.missal\\OneDrive - '
    'ribeka.com\\Pc\\Dokumente\\GitHub\\autorun\\python\\Datengenerierung\\ribeka '
    '55mm breit_white.png',
@@ -2018,7 +2018,7 @@
   ('zlib1.dll', 'C:\\Program Files\\Python313\\DLLs\\zlib1.dll', 'BINARY')],
  [],
  [],
- [('ribeka 55mm breit_white.png',
+ [('ribeka_Logo.png',
    'C:\\Users\\e.missal\\OneDrive - '
    'ribeka.com\\Pc\\Dokumente\\GitHub\\autorun\\python\\Datengenerierung\\ribeka '
    '55mm breit_white.png',

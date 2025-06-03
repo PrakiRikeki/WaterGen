@@ -18,7 +18,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 # Bildverarbeitung
-from PIL import Image, ImageTk, ImageDraw, ImageFont
+from PIL import Image, ImageTk, ImageDraw, ImageFont, ImageSequence
 
 # Systemfunktionen
 import threading
@@ -26,6 +26,7 @@ import os
 import ctypes
 from screeninfo import get_monitors
 import webbrowser
+import sys
 
 # Mathematik und Zufall
 import math
@@ -645,7 +646,7 @@ def show_loading_screen():
     loading_window.configure(bg=DISCORD_DARKER)
 
     try:
-        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ribeka 55mm breit_white.png")
+        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ribeka_Logo.png")
         original_logo = Image.open(logo_path)
         logo_width = 200
         aspect_ratio = original_logo.height / original_logo.width
@@ -725,7 +726,7 @@ def create_gui():
 
     # Logo oben rechts
     try:
-        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ribeka 55mm breit_white.png")
+        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ribeka_Logo.png")
         original_logo = Image.open(logo_path)
         logo_width = 100
         aspect_ratio = original_logo.height / original_logo.width
@@ -768,13 +769,13 @@ def create_gui():
 
     style = ttk.Style(root)
     style.configure("TProgressbar",
-                   troughcolor=DISCORD_DARKER,
-                   background=BUTTON_COLOR,
-                   borderwidth=0)
+                troughcolor=DISCORD_DARKER,
+                background=BUTTON_COLOR,
+                borderwidth=0)
 
     label_style = {"bg": DISCORD_DARK, "fg": DISCORD_TEXT, "font": ('Arial', 11)}
     entry_style = {"bg": DISCORD_INPUT_BG, "fg": DISCORD_TEXT, "insertbackground": DISCORD_TEXT,
-                  "font": ('Arial', 11), "bd": 0, "relief": "flat"}
+                "font": ('Arial', 11), "bd": 0, "relief": "flat"}
 
 
     # Header-Frame erstellen (bestehender Code)
@@ -790,66 +791,171 @@ def create_gui():
     
 
 
-    # SVG-Logo erstellen
-    # Logo-Pfad mit resource_path Funktion ermitteln
-    logo_path_WaterGen = resource_path("WaterGen_Logo.png")
+    # WaterGen Logo (statisch und animiert)
+    logo_path_WaterGen_png = resource_path("WaterGen_Logo.png")
+    logo_path_WaterGen_gif = resource_path("WaterGen_Animation.gif") # Pfad zum GIF
 
-    # Erstellen des SVG-Bildes für das neue Logo
-    # Sie können die Skalierung mit dem Parameter `scale` anpassen, falls nötig.
-    # z.B. neues_logo_image = tksvg.SvgImage(data=neues_logo_svg_code, scale=0.5)
+    # Definiere Logo-Dimensionen hier, um sie für PNG und GIF zu verwenden
+    watergen_logo_width = 150
+    watergen_logo_height = 0 # Wird basierend auf Aspekt berechnet
+
+    root.static_watergen_logo_tk = None
+    root.watergen_gif_frames = []
+    root.watergen_gif_frame_duration = 100 # Standard-Dauer (ms)
+    root.is_watergen_animating = False
+
     try:
-        original_logo = Image.open(logo_path_WaterGen)
-        logo_width = 150
-        aspect_ratio = original_logo.height / original_logo.width
-        logo_height = int(logo_width * aspect_ratio)
-        resized_logo = original_logo.resize((logo_width, logo_height), Image.LANCZOS)
-        logo_img = ImageTk.PhotoImage(resized_logo)
-        logo_img_global = logo_img
-        
-        # Logo-Label erstellen
-        logo_label = tk.Label(header_canvas, image=logo_img, bg=DISCORD_DARK)
-        logo_label.image = logo_img
-        header_canvas.create_window(120, 50, window=logo_label)
+        # Statisches PNG-Logo laden
+        original_png = Image.open(logo_path_WaterGen_png)
+        aspect_ratio = original_png.height / original_png.width
+        watergen_logo_height = int(watergen_logo_width * aspect_ratio)
+        resized_png = original_png.resize((watergen_logo_width, watergen_logo_height), Image.LANCZOS)
+        root.static_watergen_logo_tk = ImageTk.PhotoImage(resized_png)
+
+        # Animiertes GIF laden und Frames vorbereiten
+        try:
+            gif_image = Image.open(logo_path_WaterGen_gif)
+            root.watergen_gif_frame_duration = gif_image.info.get('duration', 100)
+            for frame in ImageSequence.Iterator(gif_image):
+                frame_rgba = frame.convert("RGBA") # Für Transparenz
+                resized_frame_img = frame_rgba.resize((watergen_logo_width, watergen_logo_height), Image.LANCZOS)
+                root.watergen_gif_frames.append(ImageTk.PhotoImage(resized_frame_img))
+        except Exception as e:
+            print(f"Fehler beim Laden des WaterGen GIF: {e}. Animation nicht verfügbar.")
+            root.watergen_gif_frames = [] # Keine Animation, wenn GIF nicht geladen werden kann
+
     except Exception as e:
-        print(f"Fehler beim Laden des neuen SVG-Logos: {e}")
-        # Fallback, falls das SVG nicht geladen werden kann
+        print(f"Fehler beim Laden des statischen WaterGen-Logos: {e}")
+        # Fallback-Label, wenn statisches Logo nicht geladen werden kann
         fallback_label = tk.Label(header_canvas, text="WaterGen",
                                 bg=DISCORD_DARK, fg=DISCORD_TEXT,
                                 font=('Arial', 24, 'bold'))
         header_canvas.create_window(120, 50, window=fallback_label)
-        
+        root.watergen_logo_widget = fallback_label # Fallback-Widget zuweisen
+    
+    if root.static_watergen_logo_tk:
+        # Logo-Label erstellen, nur wenn statisches Logo geladen wurde
+        watergen_logo_label = tk.Label(header_canvas, image=root.static_watergen_logo_tk, bg=DISCORD_DARK, cursor="hand2")
+        watergen_logo_label.image = root.static_watergen_logo_tk # Wichtig: Referenz behalten
+        root.watergen_logo_widget = watergen_logo_label # Referenz auf das Label speichern
+        header_canvas.create_window(120, 50, window=watergen_logo_label)
 
-    # SVG-Logo erstellen
-    # Logo-Pfad mit resource_path Funktion ermitteln
-    logo_path = resource_path("ribeka 55mm breit_white.png")
+        # --- Animationsfunktionen für WaterGen Logo ---
+        def _animate_watergen_gif(frame_index):
+            if not root.watergen_gif_frames: # Sollte nicht passieren, wenn play_watergen_gif_once prüft
+                root.is_watergen_animating = False
+                # Stelle sicher, dass das statische Bild angezeigt wird, falls etwas schiefgeht
+                if root.static_watergen_logo_tk:
+                    root.watergen_logo_widget.config(image=root.static_watergen_logo_tk)
+                    root.watergen_logo_widget.image = root.static_watergen_logo_tk
+                return
+
+            if frame_index < len(root.watergen_gif_frames):
+                frame_image = root.watergen_gif_frames[frame_index]
+                root.watergen_logo_widget.config(image=frame_image)
+                root.watergen_logo_widget.image = frame_image # Referenz aktualisieren
+                root.after(root.watergen_gif_frame_duration, _animate_watergen_gif, frame_index + 1)
+            else:
+                # Animation beendet, statisches Logo wieder anzeigen
+                root.watergen_logo_widget.config(image=root.static_watergen_logo_tk)
+                root.watergen_logo_widget.image = root.static_watergen_logo_tk # Referenz aktualisieren
+                root.is_watergen_animating = False
+
+        def play_watergen_gif_once(event=None):
+            if root.is_watergen_animating or not root.watergen_gif_frames:
+                return # Animation läuft bereits oder keine Frames zum Abspielen
+            if not hasattr(root, 'watergen_logo_widget') or not root.static_watergen_logo_tk:
+                return # Logo wurde nicht korrekt initialisiert
+
+            root.is_watergen_animating = True
+            _animate_watergen_gif(0)
+
+        # Klick-Event an das Logo binden
+        if hasattr(root, 'watergen_logo_widget'):
+            root.watergen_logo_widget.bind("<Button-1>", play_watergen_gif_once)
+    
+    # Ribeka Logo mit GIF-Animation
+    logo_path_ribeka_png = resource_path("ribeka_Logo.png")
+    logo_path_ribeka_gif = resource_path("ribeka_Animation.gif")
+
+    # Definiere Ribeka Logo Dimensionen
+    ribeka_logo_width = 200
+    ribeka_logo_height = 0 # Wird basierend auf Aspekt berechnet
+
+    root.static_ribeka_logo_tk = None 
+    root.ribeka_gif_frames = []
+    root.ribeka_gif_frame_duration = 100 # Standard-Dauer (ms)
+    root.is_ribeka_animating = False
 
     try:
-        original_logo = Image.open(logo_path)
-        logo_width = 200
-        aspect_ratio = original_logo.height / original_logo.width
-        logo_height = int(logo_width * aspect_ratio)
-        resized_logo = original_logo.resize((logo_width, logo_height), Image.LANCZOS)
-        logo_img = ImageTk.PhotoImage(resized_logo)
-        logo_img_global = logo_img
-        
-        # Logo-Label erstellen
-        logo_label = tk.Label(header_canvas, image=logo_img, bg=DISCORD_DARK)
-        logo_label.image = logo_img
-        header_canvas.create_window(420, 50, window=logo_label)
+        # Statisches PNG-Logo laden
+        original_ribeka = Image.open(logo_path_ribeka_png)
+        aspect_ratio = original_ribeka.height / original_ribeka.width
+        ribeka_logo_height = int(ribeka_logo_width * aspect_ratio)
+        resized_ribeka = original_ribeka.resize((ribeka_logo_width, ribeka_logo_height), Image.LANCZOS)
+        root.static_ribeka_logo_tk = ImageTk.PhotoImage(resized_ribeka)
+
+        # Animiertes GIF laden und Frames vorbereiten
+        try:
+            gif_image = Image.open(logo_path_ribeka_gif)
+            root.ribeka_gif_frame_duration = gif_image.info.get('duration', 100)
+            for frame in ImageSequence.Iterator(gif_image):
+                frame_rgba = frame.convert("RGBA") # Für Transparenz
+                resized_frame_img = frame_rgba.resize((ribeka_logo_width, ribeka_logo_height), Image.LANCZOS)
+                root.ribeka_gif_frames.append(ImageTk.PhotoImage(resized_frame_img))
+        except Exception as e:
+            print(f"Fehler beim Laden des Ribeka GIF: {e}. Animation nicht verfügbar.")
+            root.ribeka_gif_frames = []
+
     except Exception as e:
-        print(f"Fehler beim Laden des Logos: {e}")
-        # Fallback zur Text-Version
-        logo_frame = tk.Frame(header_canvas, bg=DISCORD_DARK)
-        logo_label = tk.Label(logo_frame, text="ribeka", 
-                            bg=DISCORD_DARK, fg=DISCORD_TEXT,
-                            font=('Arial', 35, 'bold'))
-        logo_label.pack()
-        
-        # Unterstrich hinzufügen
-        underline = tk.Frame(logo_frame, height=3, bg=DISCORD_TEXT)
-        underline.pack(fill=tk.X, pady=(0, 5))
-        
-        header_canvas.create_window(420, 50, window=logo_frame)
+        print(f"Fehler beim Laden des statischen Ribeka-Logos: {e}")
+        # Fallback-Label, wenn statisches Logo nicht geladen werden kann
+        fallback_label = tk.Label(header_canvas, text="ribeka",
+                                bg=DISCORD_DARK, fg=DISCORD_TEXT,
+                                font=('Arial', 24, 'bold'))
+        header_canvas.create_window(420, 50, window=fallback_label)
+        root.ribeka_logo_widget = fallback_label
+    
+    if root.static_ribeka_logo_tk:
+        # Logo-Label erstellen, nur wenn statisches Logo geladen wurde
+        ribeka_logo_label = tk.Label(header_canvas, image=root.static_ribeka_logo_tk, 
+                                   bg=DISCORD_DARK, cursor="hand2")
+        ribeka_logo_label.image = root.static_ribeka_logo_tk
+        root.ribeka_logo_widget = ribeka_logo_label
+        header_canvas.create_window(420, 50, window=ribeka_logo_label)
+
+        # Animationsfunktionen für Ribeka Logo
+        def _animate_ribeka_gif(frame_index):
+            if not root.ribeka_gif_frames:
+                root.is_ribeka_animating = False
+                if root.static_ribeka_logo_tk:
+                    root.ribeka_logo_widget.config(image=root.static_ribeka_logo_tk)
+                    root.ribeka_logo_widget.image = root.static_ribeka_logo_tk
+                return
+
+            if frame_index < len(root.ribeka_gif_frames):
+                frame_image = root.ribeka_gif_frames[frame_index]
+                root.ribeka_logo_widget.config(image=frame_image)
+                root.ribeka_logo_widget.image = frame_image
+                root.after(root.ribeka_gif_frame_duration, _animate_ribeka_gif, frame_index + 1)
+            else:
+                # Animation beendet, statisches Logo wieder anzeigen
+                root.ribeka_logo_widget.config(image=root.static_ribeka_logo_tk)
+                root.ribeka_logo_widget.image = root.static_ribeka_logo_tk
+                root.is_ribeka_animating = False
+
+        def play_ribeka_gif_once(event=None):
+            if root.is_ribeka_animating or not root.ribeka_gif_frames:
+                return
+            if not hasattr(root, 'ribeka_logo_widget') or not root.static_ribeka_logo_tk:
+                return
+
+            root.is_ribeka_animating = True
+            _animate_ribeka_gif(0)
+
+        # Klick-Event an das Logo binden
+        if hasattr(root, 'ribeka_logo_widget'):
+            root.ribeka_logo_widget.bind("<Button-1>", play_ribeka_gif_once)
 
 
     # 1. Zeitspanne und Intervall
@@ -913,7 +1019,7 @@ def create_gui():
 
     # Switch-Hintergrund erstellen - rot für CSV
     switch_bg = create_rounded_rect(format_switch_canvas, 0, 0, 100, 30,
-                            radius=15, fill="#D755FF")  # Rot für CSV
+                            radius=15, fill="#4b5ae4")  # Rot für CSV
 
     # Toggle-Button (weißer Kreis)
     button_size = 20
@@ -930,13 +1036,13 @@ def create_gui():
         if root.output_format == "csv":
             # Zu Excel wechseln
             root.output_format = "excel"
-            format_switch_canvas.itemconfig(switch_bg, fill="#42E5EB")  
+            format_switch_canvas.itemconfig(switch_bg, fill="#b356ff")  
             format_switch_canvas.coords(switch_button, 75, 5, 75 + button_size, 5 + button_size)
             format_switch_canvas.itemconfig(switch_text, text="Excel")
         else:
             # Zu CSV wechseln
             root.output_format = "csv"
-            format_switch_canvas.itemconfig(switch_bg, fill="#D755FF")
+            format_switch_canvas.itemconfig(switch_bg, fill="#4b5ae4")
             format_switch_canvas.coords(switch_button, 5, 5, 5 + button_size, 5 + button_size)
             format_switch_canvas.itemconfig(switch_text, text="CSV")
 
@@ -1527,12 +1633,12 @@ def create_gui():
 
             interval_hours_str = intervall_entry.get()
             if not interval_hours_str:
-                 raise ValueError("Intervall darf nicht leer sein.")
+                raise ValueError("Intervall darf nicht leer sein.")
 
             try:
-                 interval_hours = float(interval_hours_str)
+                interval_hours = float(interval_hours_str)
             except ValueError:
-                 raise ValueError("Intervall muss eine Zahl sein.")
+                raise ValueError("Intervall muss eine Zahl sein.")
 
 
             if interval_hours <= 0:
@@ -1540,10 +1646,9 @@ def create_gui():
 
             # Text aus dem Messstellen-Textfeld holen und validieren
             messstellen_text_inhalt = messstellen_text.get("1.0", tk.END).strip()
+            valid, messstellen_ids = validiere_messstellen(messstellen_text_inhalt)
             if not valid:
-                raise ValueError(result)
-
-            messstellen_ids = result # Ergebnis der Validierung verwenden
+                raise ValueError(messstellen_ids)  # Bei Fehler enthält messstellen_ids die Fehlermeldung
 
 
             # Thread starten, um GUI nicht zu blockieren
