@@ -469,14 +469,20 @@ def calculate_gw_series(t_array, GW0, A, T, freq, Da, Dd, R_scale, phase=60, tre
     return GW
 
 
-# NEU: Parameter output_directory hinzugefügt
 def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours, formel_params, progress, progress_info, output_directory):
     hourly_interval = timedelta(hours=interval_hours)
     delta = end_date - start_date
     total_days = delta.days + 1
     total_hours = total_days * 24
     if interval_hours == 0: interval_hours = 1
-    total_measurements_per_station = int(total_hours / interval_hours)
+    # Correct calculation for total_measurements_per_station
+    _temp_current_time = start_date
+    _num_measurements = 0
+    while _temp_current_time <= end_date:
+        _num_measurements += 1
+        _temp_current_time += hourly_interval
+    total_measurements_per_station = _num_measurements
+    
     total_values = total_measurements_per_station * len(messstellen_ids)
 
     t_days_array = np.arange(0, total_days, 1)
@@ -502,31 +508,29 @@ def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours
 
     values_created = 0
 
-    # NEU: Überprüfen und Verwenden des Ausgabeverzeichnisses
     if not os.path.isdir(output_directory):
-        # Fallback oder Fehlerbehandlung, wenn das Verzeichnis nicht existiert
-        # Fürs Erste Fallback auf das aktuelle Verzeichnis mit einer Warnung
-        print(f"Warnung: Ausgabeverzeichnis '{output_directory}' nicht gefunden oder ist keine Datei. Speichere im aktuellen Verzeichnis.")
-        progress_info.config(text="Warnung: Ausgabepfad ungültig. Nutze aktuelles Verzeichnis.")
-        root.update_idletasks()
-        # Warte kurz, damit der Benutzer die Nachricht sehen kann
-        # root.after(3000, lambda: progress_info.config(text="Werte generiert (0%)")) # Optional
-        output_directory = "."  # Aktuelles Verzeichnis als Fallback
+        try:
+            os.makedirs(output_directory, exist_ok=True)
+            print(f"Ausgabeverzeichnis '{output_directory}' erstellt.")
+        except OSError as e:
+            print(f"Warnung: Ausgabeverzeichnis '{output_directory}' konnte nicht erstellt werden: {e}. Speichere im aktuellen Verzeichnis.")
+            progress_info.config(text="Warnung: Ausgabepfad ungültig/nicht erstellbar. Nutze aktuelles Verzeichnis.")
+            root.update_idletasks()
+            output_directory = "."
 
-    # Die Logik zum Füllen von root.partial_files_to_delete muss hier rein
-    excel_file_created = False # Flag für Excel
+    excel_file_created = False 
 
     if hasattr(root, 'output_format') and root.output_format == "excel":
         all_data = {}
         excel_filename = 'wasserstände_alle_messstellen.xlsx'
         excel_filepath = os.path.join(output_directory, excel_filename)
-        root.partial_files_to_delete.append(excel_filepath) # Zur Löschliste hinzufügen, bevor erstellt
+        root.partial_files_to_delete.append(excel_filepath)
 
         for idx, messstelle_id in enumerate(messstellen_ids):
             if root.cancel_generation_flag.is_set():
                 progress_info.config(text="Excel-Generierung wird abgebrochen...")
                 root.update_idletasks()
-                return # Frühzeitiger Ausstieg
+                return
 
             data = []
             current_time = start_date
@@ -535,22 +539,35 @@ def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours
                     progress_info.config(text="Excel-Generierung wird abgebrochen...")
                     root.update_idletasks()
                     return
-                # ... (Datenberechnung) ...
-                data.append([messstelle_id, current_time, float(f'{messwert:.2f}')])
+
+                # --- START: CALCULATION FOR messwert (copied and adapted from CSV part) ---
+                days_since_start = (current_time.date() - start_date.date()).days
+                tage_index = days_since_start
+                if 0 <= tage_index < len(grundwasser_series_daily):
+                    basis_value = grundwasser_series_daily[tage_index]
+                else:
+                    basis_value = formel_params.GW0
+                
+                messstellen_offset = (idx - len(messstellen_ids) / 2) * 1.02 # Use idx from enumerate
+                messwert = basis_value + messstellen_offset
+                messwert += random.uniform(-formel_params.R_scale * 1.02, formel_params.R_scale * 1.02)
+                # --- END: CALCULATION FOR messwert ---
+
+                data.append([messstelle_id, current_time, float(f'{messwert:.2f}')]) # Use calculated messwert
+                
                 current_time += hourly_interval
                 values_created += 1
-                if values_created % 100 == 0: # Regelmäßige Updates
+                if values_created % 100 == 0: 
                     if total_values > 0 : progress['value'] = int((values_created / total_values) * 100)
                     else: progress['value'] = 0
                     progress_info.config(text=f"Werte generiert ({progress['value']}%)".replace(',', '.'))
                     root.update_idletasks()
-                    if root.cancel_generation_flag.is_set(): return # Prüfung nach UI-Update
+                    if root.cancel_generation_flag.is_set(): return 
             all_data[messstelle_id] = data
 
         if root.cancel_generation_flag.is_set(): return
 
         try:
-            # ... (Definition von display_folder_name wie zuvor) ...
             abs_output_dir = os.path.abspath(output_directory)
             base_name_of_output_dir = os.path.basename(abs_output_dir)
             display_folder_name = base_name_of_output_dir
@@ -560,24 +577,25 @@ def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours
 
             with pd.ExcelWriter(excel_filepath,
                             engine='xlsxwriter',
-                            datetime_format='DD/MM/YYYY HH:MM') as writer:
+                            datetime_format='DD/MM/YYYY HH:MM') as writer: # Corrected datetime_format for Excel
                 for sheet_idx, (messstelle_id, data_list) in enumerate(all_data.items()):
-                    if root.cancel_generation_flag.is_set(): return # Prüfung während des Schreibens
-                    # ... (df.to_excel etc.) ...
+                    if root.cancel_generation_flag.is_set(): return 
                     df = pd.DataFrame(data_list, columns=['GWMST Name', 'Datum/Uhrzeit', 'Messwert'])
                     sheet_name = messstelle_id[:31] if len(messstelle_id) > 31 else messstelle_id
                     sheet_name = "".join([c for c in sheet_name if c.isalnum() or c in (' ', '_', '-')])
                     if not sheet_name or sheet_name[0] in ("'", "=") or any(char in sheet_name for char in ':\\/?*[]'):
-                        sheet_name = f"Messstelle_{sheet_idx+1}" # Verwende sheet_idx
-                    df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
+                        sheet_name = f"Messstelle_{sheet_idx+1}" 
+                    df.to_excel(writer, sheet_name=sheet_name, index=False, header=False) # Header=False to match CSV
                     workbook = writer.book
                     worksheet = writer.sheets[sheet_name]
-                    worksheet.set_column(1, 1, 20)
-                    worksheet.set_column(2, 2, 12)
+                    # Set column widths (optional, adjust as needed)
+                    worksheet.set_column('A:A', len(messstelle_id) + 2 if len(messstelle_id) > 10 else 12) # GWMST Name
+                    worksheet.set_column('B:B', 20)  # Datum/Uhrzeit
+                    worksheet.set_column('C:C', 12)  # Messwert
 
-            if root.cancel_generation_flag.is_set(): return # Prüfung nach dem Schreiben
+            if root.cancel_generation_flag.is_set(): return 
             
-            excel_file_created = True # Setze Flag, dass die Datei erfolgreich erstellt wurde
+            excel_file_created = True 
             progress['value'] = 100
             progress_info.config(text=f"Excel-Datei in Ordner '{display_folder_name}' gespeichert.")
             root.update_idletasks()
@@ -587,17 +605,14 @@ def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours
                 print(f"Excel Export Error: {e}")
         finally:
             if not excel_file_created and excel_filepath in root.partial_files_to_delete:
-                # Wenn Datei nicht erfolgreich erstellt (oder abgebrochen), aber in Liste,
-                # bleibt sie in der Liste, damit der Wrapper sie löscht.
                 pass
             elif excel_file_created and excel_filepath in root.partial_files_to_delete:
-                # Erfolgreich erstellt, aus Löschliste entfernen
                 root.partial_files_to_delete.remove(excel_filepath)
 
 
     else: # CSV-Export
-        num_messstellen_processed = len(messstellen_ids)
-        created_csv_files_successfully = [] # Liste für erfolgreich erstellte CSVs
+        num_messstellen_processed = len(messstellen_ids) # This was an error, should be len(messstellen_ids)
+        created_csv_files_successfully = []
 
         for idx, messstelle_id in enumerate(messstellen_ids):
             if root.cancel_generation_flag.is_set():
@@ -607,23 +622,21 @@ def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours
 
             base_filename = f'wasserstände_{messstelle_id.replace(" ", "_")}.csv'
             filepath = os.path.join(output_directory, base_filename)
-            root.partial_files_to_delete.append(filepath) # Zur Löschliste hinzufügen
+            root.partial_files_to_delete.append(filepath) 
 
             file_successfully_written = False
             try:
                 with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
                     csvwriter = csv.writer(csvfile, delimiter=';')
-                    csvwriter.writerow(['GWMST Name', 'Datum/Zeit', 'Messwert'])
+                    csvwriter.writerow(['GWMST Name', 'Datum/Zeit', 'Messwert']) # Header for CSV
                     current_time = start_date
                     while current_time <= end_date:
                         if root.cancel_generation_flag.is_set():
-                            # Wichtig: Datei könnte halb geschrieben sein.
-                            # Der finally-Block unten wird sie nicht aus der Löschliste nehmen.
-                            csvfile.close() # Sicherstellen, dass die Datei geschlossen wird
+                            csvfile.close() 
                             progress_info.config(text="CSV-Generierung wird abgebrochen...")
                             root.update_idletasks()
                             return
-                        # ... (Datenberechnung und -schreiben) ...
+                        
                         formatted_date = current_time.strftime("%d.%m.%Y %H:%M:%S")
                         days_since_start = (current_time.date() - start_date.date()).days
                         tage_index = days_since_start
@@ -631,10 +644,13 @@ def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours
                             basis_value = grundwasser_series_daily[tage_index]
                         else:
                             basis_value = formel_params.GW0
+                        
                         messstellen_offset = (idx - len(messstellen_ids) / 2) * 1.02
                         messwert = basis_value + messstellen_offset
                         messwert += random.uniform(-formel_params.R_scale * 1.02, formel_params.R_scale * 1.02)
+                        
                         csvwriter.writerow([messstelle_id, formatted_date, f'{messwert:.2f}'.replace('.', ',')])
+                        
                         current_time += hourly_interval
                         values_created += 1
                         if values_created % 100 == 0:
@@ -645,22 +661,19 @@ def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours
                             if root.cancel_generation_flag.is_set():
                                 csvfile.close()
                                 return
-                file_successfully_written = True # Wenn with-Block ohne Fehler durchläuft
+                file_successfully_written = True 
                 created_csv_files_successfully.append(filepath)
 
             except Exception as e:
                 if not root.cancel_generation_flag.is_set():
                     print(f"Fehler beim Schreiben der CSV {filepath}: {e}")
-                    # Hier keine UI-Meldung, da es pro Datei ist. Fehler wird im Wrapper behandelt.
             finally:
                 if file_successfully_written and filepath in root.partial_files_to_delete:
                     root.partial_files_to_delete.remove(filepath)
-                # Wenn nicht erfolgreich, bleibt es in der Löschliste
 
         if root.cancel_generation_flag.is_set(): return
 
-        # Nur Erfolgsmeldung setzen, wenn nicht abgebrochen wurde
-        if not root.cancel_generation_flag.is_set() and created_csv_files_successfully: # und mindestens eine Datei erfolgreich war
+        if not root.cancel_generation_flag.is_set() and created_csv_files_successfully:
             progress['value'] = 100
             abs_output_dir = os.path.abspath(output_directory)
             base_name_of_output_dir = os.path.basename(abs_output_dir)
@@ -669,7 +682,8 @@ def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours
                 if len(abs_output_dir) <= 3: display_folder_name = abs_output_dir
                 else: display_folder_name = "gewählten Ordner"
             
-            if num_messstellen_processed == 1:
+            # Use 'len(messstellen_ids)' for this check
+            if len(messstellen_ids) == 1:
                 progress_info.config(text=f"CSV-Datei in Ordner '{display_folder_name}' gespeichert.")
             else:
                 progress_info.config(text=f"CSV-Dateien in Ordner '{display_folder_name}' gespeichert.")
@@ -1533,7 +1547,7 @@ def create_gui():
     create_rounded_rect(button_canvas, 0, 0, 580, 100, radius=15,
                        fill=DISCORD_DARK, outline="")
     start_button_canvas = tk.Canvas(button_canvas, width=160, height=40,
-                                  bg=DISCORD_DARK, highlightthickness=0)
+                                  bg=DISCORD_DARK, highlightthickness=0, cursor="hand2") # Added cursor
     button_canvas.create_window(290, 40, window=start_button_canvas)
     start_button_bg = create_rounded_rect(start_button_canvas, 0, 0, 160, 40,
                                        radius=15, fill=BUTTON_COLOR, outline="")
@@ -1544,8 +1558,6 @@ def create_gui():
                         bg=DISCORD_DARK, fg=DISCORD_TEXT, font=('Arial', 11))
     button_canvas.create_window(290, 80, window=werte_info)
 
-    # In create_gui, innerhalb der Definition von start_button_canvas etc.
-
     def cancel_process(event=None):
         if root.generation_thread and root.generation_thread.is_alive():
             progress_info.config(text="Abbruch wird eingeleitet...")
@@ -1555,14 +1567,8 @@ def create_gui():
             start_button_canvas.itemconfig(start_button_text, text="Start")
             start_button_canvas.itemconfig(start_button_bg, fill=BUTTON_COLOR)
             start_button_canvas.unbind("<Button-1>") # Unbind cancel
-            start_button_canvas.bind("<Button-1>", start_process) # Rebind start
-
-            # Kurze Verzögerung, um dem Thread Zeit zum Reagieren zu geben, bevor Dateien gelöscht werden
-            # Das eigentliche Löschen sollte der Thread machen, oder ein Follow-up nach Thread-Join
-            # Für eine robustere Lösung sollte der Thread das Löschen bei Flag-Erkennung übernehmen.
-            # Hier vereinfacht: Wir warten kurz und versuchen dann zu löschen.
-            # Eine bessere Lösung: Der Thread setzt ein "aborted_successfully" Flag
-            # root.after(1000, cleanup_partial_files) # Verzögertes Aufräumen
+            # Rebind start_process (which is root.start_process_method by this point)
+            start_button_canvas.bind("<Button-1>", root.start_process_method) 
 
     def start_process(event=None):
         # Button-Zustand zu "Abbrechen" ändern
@@ -1576,8 +1582,8 @@ def create_gui():
         progress_info.config(text="Vorbereitung...")
         root.update_idletasks()
 
-        root.cancel_generation_flag.clear() # Abbruch-Flag zurücksetzen
-        root.partial_files_to_delete = [] # Liste für zu löschende Dateien leeren
+        root.cancel_generation_flag.clear() 
+        root.partial_files_to_delete = [] 
 
         try:
             start_date_str = startdatum.get()
@@ -1592,7 +1598,7 @@ def create_gui():
             if not interval_hours_str:
                 raise ValueError("Intervall darf nicht leer sein.")
             try:
-                interval_hours_val = float(interval_hours_str)
+                interval_hours_val = float(interval_hours_str.replace(',', '.')) # Handle comma as decimal
             except ValueError:
                 raise ValueError("Intervall muss eine Zahl sein.")
             if interval_hours_val <= 0:
@@ -1601,35 +1607,46 @@ def create_gui():
             messstellen_text_inhalt = messstellen_text.get("1.0", tk.END).strip()
             valid, messstellen_ids_list = validiere_messstellen(messstellen_text_inhalt)
             if not valid:
-                raise ValueError(messstellen_ids_list)
+                raise ValueError(messstellen_ids_list) # messstellen_ids_list is the error message here
 
             output_dir = root.output_directory_path.get()
             if not output_dir:
-                output_dir = "."
+                output_dir = "." 
             if not os.path.isdir(output_dir):
-                progress_info.config(text=f"Fehler: Ausgabepfad '{output_dir}' ist ungültig.")
-                # Button zurücksetzen bei Fehler
-                start_button_canvas.itemconfig(start_button_text, text="Start")
-                start_button_canvas.itemconfig(start_button_bg, fill=BUTTON_COLOR)
-                start_button_canvas.unbind("<Button-1>")
-                start_button_canvas.bind("<Button-1>", start_process)
-                return
+                # Try to create directory if it doesn't exist
+                try:
+                    os.makedirs(output_dir, exist_ok=True)
+                    print(f"Ausgabeverzeichnis '{output_dir}' erstellt.")
+                except OSError as e:
+                    progress_info.config(text=f"Fehler: Ausgabepfad '{output_dir}' ungültig/nicht erstellbar: {e}")
+                    # Button zurücksetzen bei Fehler
+                    start_button_canvas.itemconfig(start_button_text, text="Start")
+                    start_button_canvas.itemconfig(start_button_bg, fill=BUTTON_COLOR)
+                    start_button_canvas.unbind("<Button-1>")
+                    start_button_canvas.bind("<Button-1>", root.start_process_method) # Use root.start_process_method
+                    return
 
-            # Thread erstellen und starten
             root.generation_thread = threading.Thread(target=create_csv_files_thread_wrapper,
                                         args=(root, start_date_obj, end_date_obj, messstellen_ids_list,
                                             interval_hours_val, formel_params, progress, progress_info, output_dir,
-                                            start_button_canvas, start_button_text, start_button_bg)) # Button Elemente übergeben
+                                            start_button_canvas, start_button_text, start_button_bg)) 
             root.generation_thread.daemon = True
             root.generation_thread.start()
         except Exception as e:
             progress_info.config(text=f"Fehler: {str(e)}")
             progress['value'] = 0
-            # Button zurücksetzen bei Fehler
             start_button_canvas.itemconfig(start_button_text, text="Start")
             start_button_canvas.itemconfig(start_button_bg, fill=BUTTON_COLOR)
-            start_button_canvas.unbind("<Button-1>") # Unbind cancel, falls es gebunden war
-            start_button_canvas.bind("<Button-1>", start_process) # Rebind start
+            start_button_canvas.unbind("<Button-1>") 
+            start_button_canvas.bind("<Button-1>", root.start_process_method) # Use root.start_process_method
+            
+    # MODIFICATION 1: Assign start_process to root so it can be called via root.start_process_method
+    # This should be done after start_process is defined.
+    root.start_process_method = start_process
+
+    # MODIFICATION 2: Initial binding for the start button
+    # This should be done after start_button_canvas and start_process (now root.start_process_method) are defined.
+    start_button_canvas.bind("<Button-1>", root.start_process_method)
             
 
     def open_website(event):
