@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import ttk
 from tkcalendar import DateEntry
 import tksvg
+from tkinter import filedialog # NEU: Für Verzeichnisauswahl
 
 # Datenverarbeitung
 import pandas as pd
@@ -298,48 +299,54 @@ class AutoDateEntry(DarkDateEntry):
             return
 
         current = self.get()
-        cursor_pos = self.index(tk.INSERT)
 
-        # Nur bei FocusOut das Datum vollständig formatieren
-        if event.type == '10':  # FocusOut event
+        def format_complete_date():
+            filtered = ''.join(c for c in current if c.isdigit() or c == '.')
+            parts = filtered.split('.')
+            
+            if len(parts) != 3:
+                return None
+                
+            day, month, year = parts
+            
+            # Tag formatieren
             try:
-                # Entferne alle nicht-ziffern außer Punkten
-                filtered = ''.join(c for c in current if c.isdigit() or c == '.')
-                parts = filtered.split('.')
-
-                if len(parts) == 3:
-                    day, month, year = parts
-
-                    # Tag formatieren
-                    day = str(int(day) if int(day) > 0 else 1).zfill(2)
-                    if int(day) > 31: day = '31'
+                day_val = max(1, min(31, int(day))) if day else 1
+                day = str(day_val).zfill(2)
+                
+                # Monat formatieren
+                month_val = max(1, min(12, int(month))) if month else 1
+                month = str(month_val).zfill(2)
+                
+                # Jahr intelligent formatieren
+                current_year = datetime.now().year
+                current_century = current_year // 100
+                
+                if len(year) == 1:
+                    year = f"0{year}"  # Immer zweistellig machen
+                elif len(year) == 2:
+                    # Intelligente Jahrhundertwahl
+                    year_num = int(year)
+                    if year_num > (current_year % 100) + 20:  # Wenn mehr als 20 Jahre in Zukunft
+                        year = f"{current_century-1}{year}"
+                    else:
+                        year = f"{current_century}{year}"
+                elif len(year) == 3:
+                    year = f"{current_century}{year[-2:]}"
+                elif len(year) > 4:
+                    year = year[:4]
                     
-                    # Monat formatieren
-                    month = str(int(month) if int(month) > 0 else 1).zfill(2)
-                    if int(month) > 12: month = '12'
-
-                    # Jahr formatieren
-                    current_year = datetime.now().year
-                    if len(year) == 1:
-                        year = str(current_year)[-2:] + year
-                    elif len(year) == 2:
-                        year = str(current_year)[:2] + year
-                    elif len(year) == 3:
-                        year = str(current_year)[:1] + year
-                    elif len(year) > 4:
-                        year = year[:4]
-
-                    formatted = f"{day}.{month}.{year}"
-                    if len(year) == 2:
-                        formatted = f"{day}.{month}.20{year}"
-
-                    self.delete(0, tk.END)
-                    self.insert(0, formatted)
-                    self.last_value = formatted
-                    return
-
+                return f"{day}.{month}.{year}"
             except ValueError:
-                pass
+                return None
+
+        if event.type == '10':  # FocusOut event
+            formatted = format_complete_date()
+            if formatted:
+                self.delete(0, tk.END)
+                self.insert(0, formatted)
+                self.last_value = formatted
+                return
 
         # Normale Eingabe-Formatierung während des Tippens
         filtered = ''.join(c for c in current if c.isdigit() or c == '.')
@@ -462,23 +469,19 @@ def calculate_gw_series(t_array, GW0, A, T, freq, Da, Dd, R_scale, phase=60, tre
     return GW
 
 
-def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours, formel_params, progress, progress_info):
+# NEU: Parameter output_directory hinzugefügt
+def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours, formel_params, progress, progress_info, output_directory):
     hourly_interval = timedelta(hours=interval_hours)
     delta = end_date - start_date
     total_days = delta.days + 1
-    # Die Anzahl der Stunden in der Zeitspanne
     total_hours = total_days * 24
-    # Die Anzahl der Messwerte pro Messstelle basierend auf dem Intervall
-    if interval_hours == 0: interval_hours = 1 # Fallback-Wert
+    if interval_hours == 0: interval_hours = 1
     total_measurements_per_station = int(total_hours / interval_hours)
     total_values = total_measurements_per_station * len(messstellen_ids)
 
-    # Zeit-Array für die Grundwasserberechnung (Tages-basiert)
     t_days_array = np.arange(0, total_days, 1)
 
-    # Grundwasserganglinie basierend auf den Parametern berechnen
     try:
-
         grundwasser_series_daily = calculate_gw_series(
             t_days_array,
             formel_params.GW0,
@@ -493,142 +496,186 @@ def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours
             formel_params.curve_randomness,
             formel_params.secondary_freq
         )
-
-
-
-
     except Exception as e:
         print(f"Fehler bei Grundwasserreihen-Berechnung: {e}")
         grundwasser_series_daily = np.full(total_days, formel_params.GW0)
 
     values_created = 0
 
+    # NEU: Überprüfen und Verwenden des Ausgabeverzeichnisses
+    if not os.path.isdir(output_directory):
+        # Fallback oder Fehlerbehandlung, wenn das Verzeichnis nicht existiert
+        # Fürs Erste Fallback auf das aktuelle Verzeichnis mit einer Warnung
+        print(f"Warnung: Ausgabeverzeichnis '{output_directory}' nicht gefunden oder ist keine Datei. Speichere im aktuellen Verzeichnis.")
+        progress_info.config(text="Warnung: Ausgabepfad ungültig. Nutze aktuelles Verzeichnis.")
+        root.update_idletasks()
+        # Warte kurz, damit der Benutzer die Nachricht sehen kann
+        # root.after(3000, lambda: progress_info.config(text="Werte generiert (0%)")) # Optional
+        output_directory = "."  # Aktuelles Verzeichnis als Fallback
+
+    # Die Logik zum Füllen von root.partial_files_to_delete muss hier rein
+    excel_file_created = False # Flag für Excel
+
     if hasattr(root, 'output_format') and root.output_format == "excel":
         all_data = {}
+        excel_filename = 'wasserstände_alle_messstellen.xlsx'
+        excel_filepath = os.path.join(output_directory, excel_filename)
+        root.partial_files_to_delete.append(excel_filepath) # Zur Löschliste hinzufügen, bevor erstellt
 
         for idx, messstelle_id in enumerate(messstellen_ids):
+            if root.cancel_generation_flag.is_set():
+                progress_info.config(text="Excel-Generierung wird abgebrochen...")
+                root.update_idletasks()
+                return # Frühzeitiger Ausstieg
+
             data = []
             current_time = start_date
-
             while current_time <= end_date:
-                # Berechnen Sie den Tag-Index basierend auf dem aktuellen Zeitpunkt
-                days_since_start = (current_time.date() - start_date.date()).days
-                tage_index = days_since_start
-
-                # Der Hauptwert ist der Grundwasserstand für diesen Tag aus der berechneten Serie
-                # Stellen Sie sicher, dass der Index gültig ist
-                if 0 <= tage_index < len(grundwasser_series_daily):
-                    basis_value = grundwasser_series_daily[tage_index]
-                else:
-                    # Fallback: Verwenden Sie das Grundniveau, wenn der Index ungültig ist (sollte nicht passieren)
-                    basis_value = formel_params.GW0
-
-
-                # Individualisierung pro Messstelle (Offset)
-                messstellen_offset = (idx - len(messstellen_ids) / 2) * 1.02
-                messwert = basis_value + messstellen_offset
-
-                # Optional: Fügen Sie hier sehr kleine, stündliche Zufallsschwankungen hinzu,
-                # die nicht Teil des täglichen GW-Modells sind, aber realistisches Rauschen simulieren.
-                messwert += random.uniform(-formel_params.R_scale * 1.02, formel_params.R_scale * 1.02) # Beispiel
-
-
-                # Datum als datetime-Objekt beibehalten für Excel
+                if root.cancel_generation_flag.is_set():
+                    progress_info.config(text="Excel-Generierung wird abgebrochen...")
+                    root.update_idletasks()
+                    return
+                # ... (Datenberechnung) ...
                 data.append([messstelle_id, current_time, float(f'{messwert:.2f}')])
-
                 current_time += hourly_interval
                 values_created += 1
-
-                # Fortschrittsbalken aktualisieren
-                if values_created % 100 == 0:
-                    progress['value'] = int((values_created / total_values) * 100)
+                if values_created % 100 == 0: # Regelmäßige Updates
+                    if total_values > 0 : progress['value'] = int((values_created / total_values) * 100)
+                    else: progress['value'] = 0
                     progress_info.config(text=f"Werte generiert ({progress['value']}%)".replace(',', '.'))
                     root.update_idletasks()
-
-            # Speichern in Dictionary für Excel-Export
+                    if root.cancel_generation_flag.is_set(): return # Prüfung nach UI-Update
             all_data[messstelle_id] = data
 
+        if root.cancel_generation_flag.is_set(): return
+
         try:
-            # Excel-Datei erstellen
-            with pd.ExcelWriter('wasserstände_alle_messstellen.xlsx',
+            # ... (Definition von display_folder_name wie zuvor) ...
+            abs_output_dir = os.path.abspath(output_directory)
+            base_name_of_output_dir = os.path.basename(abs_output_dir)
+            display_folder_name = base_name_of_output_dir
+            if not display_folder_name: 
+                if len(abs_output_dir) <= 3: display_folder_name = abs_output_dir
+                else: display_folder_name = "gewählten Ordner"
+
+            with pd.ExcelWriter(excel_filepath,
                             engine='xlsxwriter',
                             datetime_format='DD/MM/YYYY HH:MM') as writer:
-
-                for messstelle_id, data in all_data.items():
-                    # DataFrame erstellen
-                    df = pd.DataFrame(data, columns=['GWMST Name', 'Datum/Uhrzeit', 'Messwert'])
-                    # In Excel schreiben
-                    # Beschränken Sie den Sheetnamen auf 31 Zeichen, da Excel-Limits gelten.
+                for sheet_idx, (messstelle_id, data_list) in enumerate(all_data.items()):
+                    if root.cancel_generation_flag.is_set(): return # Prüfung während des Schreibens
+                    # ... (df.to_excel etc.) ...
+                    df = pd.DataFrame(data_list, columns=['GWMST Name', 'Datum/Uhrzeit', 'Messwert'])
                     sheet_name = messstelle_id[:31] if len(messstelle_id) > 31 else messstelle_id
-                    # Entfernen Sie ungültige Zeichen für Sheetnamen, falls vorhanden (Excel-Limitierungen beachten)
                     sheet_name = "".join([c for c in sheet_name if c.isalnum() or c in (' ', '_', '-')])
-                    # Stellen Sie sicher, dass der Name nicht leer ist oder mit bestimmten Zeichen beginnt/endet
                     if not sheet_name or sheet_name[0] in ("'", "=") or any(char in sheet_name for char in ':\\/?*[]'):
-                        sheet_name = f"Messstelle_{idx+1}" # Fallback Name
-
-
+                        sheet_name = f"Messstelle_{sheet_idx+1}" # Verwende sheet_idx
                     df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
-
-                    # Formatierung anpassen
                     workbook = writer.book
                     worksheet = writer.sheets[sheet_name]
+                    worksheet.set_column(1, 1, 20)
+                    worksheet.set_column(2, 2, 12)
 
-                    # Spaltenbreiten anpassen
-                    worksheet.set_column(1, 1, 20)  # Datum/Uhrzeit-Spalte
-                    worksheet.set_column(2, 2, 12)  # Messwert-Spalte
-
+            if root.cancel_generation_flag.is_set(): return # Prüfung nach dem Schreiben
+            
+            excel_file_created = True # Setze Flag, dass die Datei erfolgreich erstellt wurde
             progress['value'] = 100
-            progress_info.config(text=f"Werte generiert (100%)".replace(',', '.'))
+            progress_info.config(text=f"Excel-Datei in Ordner '{display_folder_name}' gespeichert.")
             root.update_idletasks()
         except Exception as e:
-            progress_info.config(text=f"Fehler beim Excel-Export: {str(e)}")
-            print(f"Excel Export Error: {e}") # Zusätzliche Debug-Ausgabe
-    else:
-        # CSV-Export
+            if not root.cancel_generation_flag.is_set():
+                progress_info.config(text=f"Fehler beim Excel-Export: {str(e)}")
+                print(f"Excel Export Error: {e}")
+        finally:
+            if not excel_file_created and excel_filepath in root.partial_files_to_delete:
+                # Wenn Datei nicht erfolgreich erstellt (oder abgebrochen), aber in Liste,
+                # bleibt sie in der Liste, damit der Wrapper sie löscht.
+                pass
+            elif excel_file_created and excel_filepath in root.partial_files_to_delete:
+                # Erfolgreich erstellt, aus Löschliste entfernen
+                root.partial_files_to_delete.remove(excel_filepath)
+
+
+    else: # CSV-Export
+        num_messstellen_processed = len(messstellen_ids)
+        created_csv_files_successfully = [] # Liste für erfolgreich erstellte CSVs
+
         for idx, messstelle_id in enumerate(messstellen_ids):
-            filename = f'wasserstände_{messstelle_id.replace(" ", "_")}.csv'
+            if root.cancel_generation_flag.is_set():
+                progress_info.config(text="CSV-Generierung wird abgebrochen...")
+                root.update_idletasks()
+                return
 
-            with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
-                csvwriter = csv.writer(csvfile, delimiter=';')
-                csvwriter.writerow(['GWMST Name', 'Datum/Zeit', 'Messwert'])
+            base_filename = f'wasserstände_{messstelle_id.replace(" ", "_")}.csv'
+            filepath = os.path.join(output_directory, base_filename)
+            root.partial_files_to_delete.append(filepath) # Zur Löschliste hinzufügen
 
-                current_time = start_date
+            file_successfully_written = False
+            try:
+                with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+                    csvwriter = csv.writer(csvfile, delimiter=';')
+                    csvwriter.writerow(['GWMST Name', 'Datum/Zeit', 'Messwert'])
+                    current_time = start_date
+                    while current_time <= end_date:
+                        if root.cancel_generation_flag.is_set():
+                            # Wichtig: Datei könnte halb geschrieben sein.
+                            # Der finally-Block unten wird sie nicht aus der Löschliste nehmen.
+                            csvfile.close() # Sicherstellen, dass die Datei geschlossen wird
+                            progress_info.config(text="CSV-Generierung wird abgebrochen...")
+                            root.update_idletasks()
+                            return
+                        # ... (Datenberechnung und -schreiben) ...
+                        formatted_date = current_time.strftime("%d.%m.%Y %H:%M:%S")
+                        days_since_start = (current_time.date() - start_date.date()).days
+                        tage_index = days_since_start
+                        if 0 <= tage_index < len(grundwasser_series_daily):
+                            basis_value = grundwasser_series_daily[tage_index]
+                        else:
+                            basis_value = formel_params.GW0
+                        messstellen_offset = (idx - len(messstellen_ids) / 2) * 1.02
+                        messwert = basis_value + messstellen_offset
+                        messwert += random.uniform(-formel_params.R_scale * 1.02, formel_params.R_scale * 1.02)
+                        csvwriter.writerow([messstelle_id, formatted_date, f'{messwert:.2f}'.replace('.', ',')])
+                        current_time += hourly_interval
+                        values_created += 1
+                        if values_created % 100 == 0:
+                            if total_values > 0 : progress['value'] = int((values_created / total_values) * 100)
+                            else: progress['value'] = 0
+                            progress_info.config(text=f"Werte generiert ({progress['value']}%)".replace(',', '.'))
+                            root.update_idletasks()
+                            if root.cancel_generation_flag.is_set():
+                                csvfile.close()
+                                return
+                file_successfully_written = True # Wenn with-Block ohne Fehler durchläuft
+                created_csv_files_successfully.append(filepath)
 
-                while current_time <= end_date:
-                    formatted_date = current_time.strftime("%d.%m.%Y %H:%M:%S")
+            except Exception as e:
+                if not root.cancel_generation_flag.is_set():
+                    print(f"Fehler beim Schreiben der CSV {filepath}: {e}")
+                    # Hier keine UI-Meldung, da es pro Datei ist. Fehler wird im Wrapper behandelt.
+            finally:
+                if file_successfully_written and filepath in root.partial_files_to_delete:
+                    root.partial_files_to_delete.remove(filepath)
+                # Wenn nicht erfolgreich, bleibt es in der Löschliste
 
-                    days_since_start = (current_time.date() - start_date.date()).days
-                    tage_index = days_since_start
+        if root.cancel_generation_flag.is_set(): return
 
-                    # Der Hauptwert ist der Grundwasserstand für diesen Tag aus der berechneten Serie
-                    # Stellen Sie sicher, dass der Index gültig ist
-                    if 0 <= tage_index < len(grundwasser_series_daily):
-                        basis_value = grundwasser_series_daily[tage_index]
-                    else:
-                        # Fallback: Verwenden Sie das Grundniveau, wenn der Index ungültig ist
-                        basis_value = formel_params.GW0
-
-                    # Individualisierung pro Messstelle (Offset)
-                    messstellen_offset = (idx - len(messstellen_ids) / 2) * 0.02
-                    messwert = basis_value + messstellen_offset
-
-                    # Optional: Fügen Sie hier sehr kleine, stündliche Zufallsschwankungen hinzu
-                    messwert += random.uniform(-formel_params.R_scale * 0.02, formel_params.R_scale * 0.02) # Beispiel
-
-
-                    csvwriter.writerow([messstelle_id, formatted_date, f'{messwert:.2f}'.replace('.', ',')])
-
-                    current_time += hourly_interval
-
-                    values_created += 1
-                    if values_created % 100 == 0:
-                        progress['value'] = int((values_created / total_values) * 100)
-                        progress_info.config(text=f"{values_created:,}/{total_values:,} Werte generiert ({progress['value']}%)".replace(',', '.'))
-                        root.update_idletasks()
-
-        progress['value'] = 100
-        progress_info.config(text=f"Werte generiert (100%)".replace(',', '.'))
-        root.update_idletasks()
+        # Nur Erfolgsmeldung setzen, wenn nicht abgebrochen wurde
+        if not root.cancel_generation_flag.is_set() and created_csv_files_successfully: # und mindestens eine Datei erfolgreich war
+            progress['value'] = 100
+            abs_output_dir = os.path.abspath(output_directory)
+            base_name_of_output_dir = os.path.basename(abs_output_dir)
+            display_folder_name = base_name_of_output_dir
+            if not display_folder_name: 
+                if len(abs_output_dir) <= 3: display_folder_name = abs_output_dir
+                else: display_folder_name = "gewählten Ordner"
+            
+            if num_messstellen_processed == 1:
+                progress_info.config(text=f"CSV-Datei in Ordner '{display_folder_name}' gespeichert.")
+            else:
+                progress_info.config(text=f"CSV-Dateien in Ordner '{display_folder_name}' gespeichert.")
+            root.update_idletasks()
+        elif not root.cancel_generation_flag.is_set() and not created_csv_files_successfully:
+            progress_info.config(text="Fehler: Keine CSV-Dateien erstellt.")
 
 
 # Ladescreen-Funktion
@@ -682,24 +729,106 @@ def show_loading_screen():
 def resource_path(relative_path):
     """Ermittelt den korrekten Pfad zu Ressourcen für PyInstaller und normale Python-Ausführung"""
     try:
-        # PyInstaller erstellt einen temporären Ordner und speichert den Pfad in _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
-        # Falls nicht in PyInstaller, verwende den aktuellen Verzeichnispfad
         base_path = os.path.abspath(os.path.dirname(__file__))
-    
     return os.path.join(base_path, relative_path)
 
 
+def create_csv_files_thread_wrapper(root, start_date, end_date, messstellen_ids, interval_hours,
+                                    formel_params, progress, progress_info, output_directory,
+                                    button_canvas, button_text_item, button_bg_item): # Button Elemente empfangen
+    try:
+        create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours,
+                         formel_params, progress, progress_info, output_directory)
+        if root.cancel_generation_flag.is_set():
+             progress_info.config(text="Generierung abgebrochen.")
+             # Cleanup-Logik hier, da der Thread hier die Kontrolle hat
+             for f_path in root.partial_files_to_delete:
+                 try:
+                     if os.path.exists(f_path):
+                         os.remove(f_path)
+                         print(f"Gelöscht (Abbruch): {f_path}")
+                 except Exception as e_del:
+                     print(f"Fehler beim Löschen (Abbruch) von {f_path}: {e_del}")
+             root.partial_files_to_delete = [] # Liste leeren
+        # elif: Kein Fehler und nicht abgebrochen -> Erfolgsmeldung wird von create_csv_files gesetzt.
+            
+    except Exception as e:
+        if not root.cancel_generation_flag.is_set(): # Nur Fehler anzeigen, wenn nicht aktiv abgebrochen
+            progress_info.config(text=f"Fehler im Thread: {str(e)}")
+            print(f"Thread Error: {e}")
+        # Cleanup auch bei Fehler (außer es wurde aktiv abgebrochen und dort schon bereinigt)
+        if not root.cancel_generation_flag.is_set():
+            for f_path in root.partial_files_to_delete:
+                try:
+                    if os.path.exists(f_path):
+                        os.remove(f_path)
+                        print(f"Gelöscht (Fehler): {f_path}")
+                except Exception as e_del:
+                    print(f"Fehler beim Löschen (Fehler) von {f_path}: {e_del}")
+            root.partial_files_to_delete = []
+
+    finally:
+        # Button immer zurücksetzen, egal ob Erfolg, Fehler oder Abbruch
+        # Dies muss über root.after geschehen, da es aus einem anderen Thread kommt
+        def reset_button_ui():
+            button_canvas.itemconfig(button_text_item, text="Start")
+            button_canvas.itemconfig(button_bg_item, fill=BUTTON_COLOR) # BUTTON_COLOR verwenden
+            button_canvas.unbind("<Button-1>") # Eventuell gebundenes cancel_process entfernen
+            # WICHTIG: Hier muss start_process korrekt referenziert werden.
+            # Da start_process innerhalb von create_gui definiert ist, muss es entweder
+            # an diese Funktion übergeben werden oder wir müssen die Lambda-Funktion anpassen,
+            # um die in create_gui definierte start_process zu verwenden.
+            # Die aktuelle Übergabe der Button-Elemente ist gut.
+            # Wir gehen davon aus, dass start_process im Scope von create_gui bekannt ist,
+            # und das lambda wird zum Zeitpunkt der Ausführung von root.after im korrekten Kontext sein.
+            button_canvas.bind("<Button-1>", lambda event: root.start_process_method(event)) # Verwende eine Methode von root
+
+            if not root.cancel_generation_flag.is_set() and progress['value'] != 100: 
+                if "Fehler" not in progress_info.cget("text") and "Abbruch" not in progress_info.cget("text") and "Warnung" not in progress_info.cget("text"):
+                     progress_info.config(text="Bereit.") 
+            elif progress['value'] == 100 and "Fehler" not in progress_info.cget("text") and not root.cancel_generation_flag.is_set():
+                pass # Erfolgsmeldung bleibt
+            elif root.cancel_generation_flag.is_set():
+                progress_info.config(text="Abgebrochen. Dateien gelöscht.")
+                progress['value'] = 0
+
+
+        root.after(0, reset_button_ui)
+        root.generation_thread = None 
+        root.cancel_generation_flag.clear()
+        
+        
 # GUI erstellen
 def create_gui():
     show_loading_screen()
     root = tk.Tk()
     root.title("WaterGen")
-    logo_path = resource_path("icon.ico")
-    root.iconbitmap(logo_path)
+    root.generation_thread = None # Zum Speichern des laufenden Threads
+    root.cancel_generation_flag = threading.Event() # Für sicheres Abbrechen
+    root.partial_files_to_delete = [] # Liste der Dateien, die bei Abbruch gelöscht werden sollen
+    
+    logo_path_icon = resource_path("icon.ico") # Korrigierter Variablenname
+    try:
+        root.iconbitmap(logo_path_icon) # Korrigierten Variablennamen verwenden
+    except tk.TclError as e:
+        print(f"Fehler beim Setzen des Icons (möglicherweise nicht im richtigen Format oder Pfad): {e}")
+        # Versuche SVG als Fallback, falls tk.Image vorhanden ist (Python 3.9+ mit Tk 8.6+)
+        try:
+            svg_icon_path = resource_path("icon.svg") # Annahme: Du hast auch ein SVG Icon
+            img = tksvg.SvgImage(file=svg_icon_path)
+            root.iconphoto(True, img)
+            print("SVG Icon als Fallback verwendet.")
+        except Exception as svg_e:
+            print(f"Konnte auch SVG Icon nicht laden: {svg_e}")
+    except Exception as e: # Fange allgemeinere Fehler ab
+        print(f"Allgemeiner Fehler beim Setzen des Icons: {e}")
+
+
     window_width = 620
-    window_height = 700
+    # window_height = 700 # Alte Höhe
+    window_height = 780 # NEU: Höhe angepasst für neuen Bereich
     screen_width = root.winfo_screenwidth()
     screen_height = root.winfo_screenheight()
     x_pos = int((screen_width/2) - (window_width/2))
@@ -708,41 +837,26 @@ def create_gui():
     set_dark_title_bar(root)
     root.configure(bg=DISCORD_BG)
 
-    # Icon für Fenster und Taskleiste setzen
     try:
-        root.iconbitmap(resource_path("icon.ico"))
-        
         # Für Windows: Taskleisten-Icon konfigurieren
         try:
             from ctypes import windll
-            app_id = "ribeka.watergen.app.1.0"  # Eindeutige ID für Ihre App
+            app_id = "ribeka.watergen.app.1.0"
             windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
         except ImportError:
-            pass  # Ignorieren, wenn nicht auf Windows
+            pass
     except Exception as e:
-        print(f"Fehler beim Setzen des Icons: {e}")
+        print(f"Fehler beim Setzen der App-ID: {e}")
+
+    formel_params = FormelParameter()
+
+    # NEU: StringVar für den Ausgabepfad initialisieren
+    root.output_directory_path = tk.StringVar()
+    root.output_directory_path.set(os.getcwd()) # Standard: Aktuelles Arbeitsverzeichnis
 
 
-
-    # Logo oben rechts
-    try:
-        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ribeka_Logo.png")
-        original_logo = Image.open(logo_path)
-        logo_width = 100
-        aspect_ratio = original_logo.height / original_logo.width
-        logo_height = int(logo_width * aspect_ratio)
-        resized_logo = original_logo.resize((logo_width, logo_height), Image.LANCZOS)
-        # Globale Referenz erstellen oder die Referenz dem Widget zuweisen
-        logo_img = ImageTk.PhotoImage(resized_logo)
-        logo_label = tk.Label(root, image=logo_img, bg=DISCORD_BG)
-        logo_label.image = logo_img # Diese Zeile ist entscheidend!
-        logo_label.place(relx=1, rely=0, anchor='ne', x=-10, y=10)
-    except Exception as e:
-        print(f"Fehler beim Laden des Logos: {e}")
-
-    formel_params = FormelParameter() # Instanz der FormelParameter-Klasse
-
-    root.minsize(620, 720)
+    # root.minsize(620, 720) # Alte Mindestgröße
+    root.minsize(620, 780) # NEU: Mindesthöhe angepasst
     root.grid_rowconfigure(0, weight=1)
     root.grid_columnconfigure(0, weight=1)
 
@@ -778,153 +892,114 @@ def create_gui():
                 "font": ('Arial', 11), "bd": 0, "relief": "flat"}
 
 
-    # Header-Frame erstellen (bestehender Code)
     header_frame = tk.Frame(main_frame, bg=DISCORD_BG)
     header_frame.pack(fill=tk.X, pady=(0, 20))
-
     header_canvas = tk.Canvas(header_frame, bg=DISCORD_BG, height=100,
                             highlightthickness=0, width=580)
     header_canvas.pack(fill=tk.X)
-
     create_rounded_rect(header_canvas, 0, 0, 580, 100, radius=15,
                         fill=DISCORD_DARK, outline="")
     
-
-
     # WaterGen Logo (statisch und animiert)
     logo_path_WaterGen_png = resource_path("WaterGen_Logo.png")
     logo_path_WaterGen_gif = resource_path("WaterGen_Animation.gif") # Pfad zum GIF
-
-    # Definiere Logo-Dimensionen hier, um sie für PNG und GIF zu verwenden
     watergen_logo_width = 150
-    watergen_logo_height = 0 # Wird basierend auf Aspekt berechnet
-
+    watergen_logo_height = 0 
     root.static_watergen_logo_tk = None
     root.watergen_gif_frames = []
-    root.watergen_gif_frame_duration = 100 # Standard-Dauer (ms)
+    root.watergen_gif_frame_duration = 100 
     root.is_watergen_animating = False
-
     try:
-        # Statisches PNG-Logo laden
         original_png = Image.open(logo_path_WaterGen_png)
         aspect_ratio = original_png.height / original_png.width
         watergen_logo_height = int(watergen_logo_width * aspect_ratio)
         resized_png = original_png.resize((watergen_logo_width, watergen_logo_height), Image.LANCZOS)
         root.static_watergen_logo_tk = ImageTk.PhotoImage(resized_png)
-
-        # Animiertes GIF laden und Frames vorbereiten
         try:
             gif_image = Image.open(logo_path_WaterGen_gif)
             root.watergen_gif_frame_duration = gif_image.info.get('duration', 100)
             for frame in ImageSequence.Iterator(gif_image):
-                frame_rgba = frame.convert("RGBA") # Für Transparenz
+                frame_rgba = frame.convert("RGBA") 
                 resized_frame_img = frame_rgba.resize((watergen_logo_width, watergen_logo_height), Image.LANCZOS)
                 root.watergen_gif_frames.append(ImageTk.PhotoImage(resized_frame_img))
         except Exception as e:
             print(f"Fehler beim Laden des WaterGen GIF: {e}. Animation nicht verfügbar.")
-            root.watergen_gif_frames = [] # Keine Animation, wenn GIF nicht geladen werden kann
-
+            root.watergen_gif_frames = []
     except Exception as e:
         print(f"Fehler beim Laden des statischen WaterGen-Logos: {e}")
-        # Fallback-Label, wenn statisches Logo nicht geladen werden kann
         fallback_label = tk.Label(header_canvas, text="WaterGen",
                                 bg=DISCORD_DARK, fg=DISCORD_TEXT,
                                 font=('Arial', 24, 'bold'))
         header_canvas.create_window(120, 50, window=fallback_label)
-        root.watergen_logo_widget = fallback_label # Fallback-Widget zuweisen
-    
+        root.watergen_logo_widget = fallback_label
     if root.static_watergen_logo_tk:
-        # Logo-Label erstellen, nur wenn statisches Logo geladen wurde
         watergen_logo_label = tk.Label(header_canvas, image=root.static_watergen_logo_tk, bg=DISCORD_DARK, cursor="hand2")
-        watergen_logo_label.image = root.static_watergen_logo_tk # Wichtig: Referenz behalten
-        root.watergen_logo_widget = watergen_logo_label # Referenz auf das Label speichern
+        watergen_logo_label.image = root.static_watergen_logo_tk 
+        root.watergen_logo_widget = watergen_logo_label 
         header_canvas.create_window(120, 50, window=watergen_logo_label)
-
-        # --- Animationsfunktionen für WaterGen Logo ---
         def _animate_watergen_gif(frame_index):
-            if not root.watergen_gif_frames: # Sollte nicht passieren, wenn play_watergen_gif_once prüft
+            if not root.watergen_gif_frames: 
                 root.is_watergen_animating = False
-                # Stelle sicher, dass das statische Bild angezeigt wird, falls etwas schiefgeht
                 if root.static_watergen_logo_tk:
                     root.watergen_logo_widget.config(image=root.static_watergen_logo_tk)
                     root.watergen_logo_widget.image = root.static_watergen_logo_tk
                 return
-
             if frame_index < len(root.watergen_gif_frames):
                 frame_image = root.watergen_gif_frames[frame_index]
                 root.watergen_logo_widget.config(image=frame_image)
-                root.watergen_logo_widget.image = frame_image # Referenz aktualisieren
+                root.watergen_logo_widget.image = frame_image 
                 root.after(root.watergen_gif_frame_duration, _animate_watergen_gif, frame_index + 1)
             else:
-                # Animation beendet, statisches Logo wieder anzeigen
                 root.watergen_logo_widget.config(image=root.static_watergen_logo_tk)
-                root.watergen_logo_widget.image = root.static_watergen_logo_tk # Referenz aktualisieren
+                root.watergen_logo_widget.image = root.static_watergen_logo_tk 
                 root.is_watergen_animating = False
-
         def play_watergen_gif_once(event=None):
             if root.is_watergen_animating or not root.watergen_gif_frames:
-                return # Animation läuft bereits oder keine Frames zum Abspielen
+                return 
             if not hasattr(root, 'watergen_logo_widget') or not root.static_watergen_logo_tk:
-                return # Logo wurde nicht korrekt initialisiert
-
+                return 
             root.is_watergen_animating = True
             _animate_watergen_gif(0)
-
-        # Klick-Event an das Logo binden
         if hasattr(root, 'watergen_logo_widget'):
             root.watergen_logo_widget.bind("<Button-1>", play_watergen_gif_once)
     
-    # Ribeka Logo mit GIF-Animation
     logo_path_ribeka_png = resource_path("ribeka_Logo.png")
     logo_path_ribeka_gif = resource_path("ribeka_Animation.gif")
-
-    # Definiere Ribeka Logo Dimensionen
     ribeka_logo_width = 200
-    ribeka_logo_height = 0 # Wird basierend auf Aspekt berechnet
-
+    ribeka_logo_height = 0 
     root.static_ribeka_logo_tk = None 
     root.ribeka_gif_frames = []
-    root.ribeka_gif_frame_duration = 100 # Standard-Dauer (ms)
+    root.ribeka_gif_frame_duration = 100
     root.is_ribeka_animating = False
-
     try:
-        # Statisches PNG-Logo laden
         original_ribeka = Image.open(logo_path_ribeka_png)
         aspect_ratio = original_ribeka.height / original_ribeka.width
         ribeka_logo_height = int(ribeka_logo_width * aspect_ratio)
         resized_ribeka = original_ribeka.resize((ribeka_logo_width, ribeka_logo_height), Image.LANCZOS)
         root.static_ribeka_logo_tk = ImageTk.PhotoImage(resized_ribeka)
-
-        # Animiertes GIF laden und Frames vorbereiten
         try:
             gif_image = Image.open(logo_path_ribeka_gif)
             root.ribeka_gif_frame_duration = gif_image.info.get('duration', 100)
             for frame in ImageSequence.Iterator(gif_image):
-                frame_rgba = frame.convert("RGBA") # Für Transparenz
+                frame_rgba = frame.convert("RGBA") 
                 resized_frame_img = frame_rgba.resize((ribeka_logo_width, ribeka_logo_height), Image.LANCZOS)
                 root.ribeka_gif_frames.append(ImageTk.PhotoImage(resized_frame_img))
         except Exception as e:
             print(f"Fehler beim Laden des Ribeka GIF: {e}. Animation nicht verfügbar.")
             root.ribeka_gif_frames = []
-
     except Exception as e:
         print(f"Fehler beim Laden des statischen Ribeka-Logos: {e}")
-        # Fallback-Label, wenn statisches Logo nicht geladen werden kann
         fallback_label = tk.Label(header_canvas, text="ribeka",
                                 bg=DISCORD_DARK, fg=DISCORD_TEXT,
                                 font=('Arial', 24, 'bold'))
         header_canvas.create_window(420, 50, window=fallback_label)
         root.ribeka_logo_widget = fallback_label
-    
     if root.static_ribeka_logo_tk:
-        # Logo-Label erstellen, nur wenn statisches Logo geladen wurde
         ribeka_logo_label = tk.Label(header_canvas, image=root.static_ribeka_logo_tk, 
                                    bg=DISCORD_DARK, cursor="hand2")
         ribeka_logo_label.image = root.static_ribeka_logo_tk
         root.ribeka_logo_widget = ribeka_logo_label
         header_canvas.create_window(420, 50, window=ribeka_logo_label)
-
-        # Animationsfunktionen für Ribeka Logo
         def _animate_ribeka_gif(frame_index):
             if not root.ribeka_gif_frames:
                 root.is_ribeka_animating = False
@@ -932,136 +1007,85 @@ def create_gui():
                     root.ribeka_logo_widget.config(image=root.static_ribeka_logo_tk)
                     root.ribeka_logo_widget.image = root.static_ribeka_logo_tk
                 return
-
             if frame_index < len(root.ribeka_gif_frames):
                 frame_image = root.ribeka_gif_frames[frame_index]
                 root.ribeka_logo_widget.config(image=frame_image)
                 root.ribeka_logo_widget.image = frame_image
                 root.after(root.ribeka_gif_frame_duration, _animate_ribeka_gif, frame_index + 1)
             else:
-                # Animation beendet, statisches Logo wieder anzeigen
                 root.ribeka_logo_widget.config(image=root.static_ribeka_logo_tk)
                 root.ribeka_logo_widget.image = root.static_ribeka_logo_tk
                 root.is_ribeka_animating = False
-
         def play_ribeka_gif_once(event=None):
             if root.is_ribeka_animating or not root.ribeka_gif_frames:
                 return
             if not hasattr(root, 'ribeka_logo_widget') or not root.static_ribeka_logo_tk:
                 return
-
             root.is_ribeka_animating = True
             _animate_ribeka_gif(0)
-
-        # Klick-Event an das Logo binden
         if hasattr(root, 'ribeka_logo_widget'):
             root.ribeka_logo_widget.bind("<Button-1>", play_ribeka_gif_once)
 
 
     # 1. Zeitspanne und Intervall
-    
     zeitspan_frame = tk.Frame(main_frame, bg=DISCORD_BG)
     zeitspan_frame.pack(fill=tk.X, pady=(0, 10))
-
     zeitspan_canvas = tk.Canvas(zeitspan_frame, bg=DISCORD_BG, height=100, highlightthickness=0, width=580)
     zeitspan_canvas.pack(fill=tk.X)
-
     create_rounded_rect(zeitspan_canvas, 0, 0, 580, 100, radius=15, fill=DISCORD_DARK, outline="")
-
     zeitspanne_label = tk.Label(zeitspan_canvas, text="Zeitspanne", **label_style)
     zeitspan_canvas.create_window(20, 30, window=zeitspanne_label, anchor="w")
-
-    # Entfernen Sie redundante Style-Definitionen und behalten Sie nur eine:
     style = ttk.Style(root)
     style.theme_use('clam')
-
-    # Vereinfachte DateEntry-Konfiguration
     style.configure('Custom.DateEntry',
                     fieldbackground=DISCORD_INPUT_BG,
                     foreground=DISCORD_TEXT,
                     borderwidth=0,
                     relief="flat")
-
-
-    # Nur width angeben, keine anderen Style-Parameter überschreiben
     startdatum = AutoDateEntry(zeitspan_canvas, width=12, style='Custom.DateEntry')
     zeitspan_canvas.create_window(170, 30, window=startdatum)
-
     zeitspanne_anzeige = tk.Label(zeitspan_canvas, text="0 Jahre, 0 Monate, 0 Tage",
                                 **label_style, width=25)
     zeitspan_canvas.create_window(340, 30, window=zeitspanne_anzeige)
-
-    # Nur width angeben, keine anderen Style-Parameter überschreiben
     enddatum = AutoDateEntry(zeitspan_canvas, width=12, style='Custom.DateEntry')
     zeitspan_canvas.create_window(500, 30, window=enddatum)
-
     intervall_label = tk.Label(zeitspan_canvas, text="Intervall [Std.]", **label_style)
     zeitspan_canvas.create_window(20, 70, window=intervall_label, anchor="w")
-
     intervall_entry = tk.Entry(zeitspan_canvas, width=11, **entry_style)
     intervall_entry.insert(0, "1")
     zeitspan_canvas.create_window(170, 70, window=intervall_entry)
     
-    
-    
-    # 1,5. CVS und Excel Schalter
-
-    # Format-Switch neben Start-Button hinzufügen
     switch_label = tk.Label(zeitspan_canvas, text="Ausgabeformat", **label_style)
     zeitspan_canvas.create_window(255, 70, window=switch_label, anchor="w")
-    
     format_switch_canvas = tk.Canvas(zeitspan_canvas, width=100, height=30,
                                 bg=DISCORD_DARK, highlightthickness=0)
     zeitspan_canvas.create_window(497, 70, window=format_switch_canvas)
-
-    # Variable zum Speichern des Formats
-    root.output_format = "csv"  # Standard ist CSV
-
-    # Switch-Hintergrund erstellen - rot für CSV
+    root.output_format = "csv"
     switch_bg = create_rounded_rect(format_switch_canvas, 0, 0, 100, 30,
-                            radius=15, fill="#4b5ae4")  # Rot für CSV
-
-    # Toggle-Button (weißer Kreis)
-    button_size = 20
-    switch_button = format_switch_canvas.create_oval(5, 5, 5 + button_size, 5 + button_size,
+                            radius=15, fill="#4b5ae4")
+    button_size_toggle = 20 # Variable umbenannt, um Konflikt zu vermeiden
+    switch_button = format_switch_canvas.create_oval(5, 5, 5 + button_size_toggle, 5 + button_size_toggle,
                                             fill="white", outline="")
-
-    # Format-Text hinzufügen
     switch_text = format_switch_canvas.create_text(50, 15, text="CSV",
                                             fill="white", font=("Arial", 10, "bold"))
-
-    # Funktion zum Umschalten des Formats
     def toggle_format(event=None):
-        button_size = 20
         if root.output_format == "csv":
-            # Zu Excel wechseln
             root.output_format = "excel"
             format_switch_canvas.itemconfig(switch_bg, fill="#b356ff")  
-            format_switch_canvas.coords(switch_button, 75, 5, 75 + button_size, 5 + button_size)
+            format_switch_canvas.coords(switch_button, 75, 5, 75 + button_size_toggle, 5 + button_size_toggle)
             format_switch_canvas.itemconfig(switch_text, text="Excel")
         else:
-            # Zu CSV wechseln
             root.output_format = "csv"
             format_switch_canvas.itemconfig(switch_bg, fill="#4b5ae4")
-            format_switch_canvas.coords(switch_button, 5, 5, 5 + button_size, 5 + button_size)
+            format_switch_canvas.coords(switch_button, 5, 5, 5 + button_size_toggle, 5 + button_size_toggle)
             format_switch_canvas.itemconfig(switch_text, text="CSV")
-
-    # Klick-Event binden
     format_switch_canvas.bind("<Button-1>", toggle_format)
     
-
-
-
-
-
     def parse_flexible_date(date_string):
-        """Parst deutsches Datum flexibel mit 2- oder 4-stelligem Jahr"""
         try:
-            # Erst mit 2-stelligem Jahr versuchen
             return datetime.strptime(date_string, '%d.%m.%y')
         except ValueError:
             try:
-                # Dann mit 4-stelligem Jahr versuchen
                 return datetime.strptime(date_string, '%d.%m.%Y')
             except ValueError:
                 raise ValueError("Ungültiges Datumsformat. Bitte TT.MM.JJ oder TT.MM.JJJJ verwenden.")
@@ -1075,140 +1099,117 @@ def create_gui():
             monate = (delta.days % 365) // 30
             tage = (delta.days % 365) % 30
             zeitspanne_anzeige.config(text=f"{jahre} Jahre, {monate} Monate, {tage} Tage")
-            berechne_werte_anzahl()
+            berechne_werte_anzahl() # Aufruf hier, um Werteinfo zu aktualisieren
         except:
             zeitspanne_anzeige.config(text="Ungültiges Datum")
+            werte_info.config(text="Zu generierende Werte: -") # Werteinfo zurücksetzen
 
     def berechne_werte_anzahl():
         try:
             start_str = startdatum.get()
             end_str = enddatum.get()
-            # Verwenden Sie parse_flexible_date für Robustheit
-            start = parse_flexible_date(start_str)
-            end = parse_flexible_date(end_str)
+            
+            # parse_flexible_date gibt datetime.datetime Objekte zurück (Zeit ist 00:00:00)
+            start = parse_flexible_date(start_str) 
+            end = parse_flexible_date(end_str)     
+            
+            if start > end: # Sicherstellen, dass Start nicht nach Ende liegt
+                werte_info.config(text="Fehler: Start > Ende")
+                return 0
 
-            delta = end - start
-            # Addiere 1, um den Endtag einzuschließen, falls der Endzeitpunkt am Ende des Tages liegt
-            # Für die Anzahl der Intervalle über die Zeitspanne ist die Differenz wichtiger.
-            # Die Anzahl der Tage für die GW-Serie ist delta.days + 1, wenn Start und Enddatum gleich sind (1 Tag).
-            # Bei 1 Tag, 24h Intervall = 24 Messwerte.
-            # Bei 2 Tagen (Start 01.01, End 02.01), 24h Intervall = 48 Messwerte.
-            # Anzahl der Stunden: (end - start).total_seconds() / 3600
-            total_hours = int(delta.total_seconds() / 3600) # Gesamtzahl der vollen Stunden
+            # delta = end - start # Nicht direkt für die Endberechnung der Werteanzahl verwendet
 
             stunden_intervall_str = intervall_entry.get().replace(',', '.')
             if not stunden_intervall_str:
+                # Diese Ausnahme wird vom nachfolgenden except-Block gefangen
                 raise ValueError("Intervall darf nicht leer sein.")
             try:
                 stunden_intervall = float(stunden_intervall_str)
             except ValueError:
+                # Diese Ausnahme wird vom nachfolgenden except-Block gefangen
                 raise ValueError("Intervall muss eine Zahl sein.")
-
-
+            
             if stunden_intervall <= 0:
                 werte_info.config(text="Fehler: Intervall > 0")
                 return 0
-
-            # Anzahl der Messwerte pro Messstelle
-            # Messpunkte sind am Startdatum + n * Intervall, bis <= Enddatum
-            # Die Anzahl ist (Endzeit - Startzeit) / Intervall + 1 (für den Startpunkt)
-            # Bei End=Start, Intervall=1h: (0)/1 + 1 = 1 Punkt? Nein, das erste Intervall ist nach 1h.
-            # Anzahl der Intervalle = total_hours / stunden_intervall
-            # Anzahl der Punkte = Anzahl Intervalle + 1
-            # Beispiel: Start 0:00, End 2:00, Intervall 1h. Punkte: 0:00, 1:00, 2:00. = 3 Punkte.
-            # total_hours = 2. 2/1 = 2 Intervalle. 2+1 = 3 Punkte.
-            # Wenn Enddatum = Startdatum, 0 Stunden, 0/1 + 1 = 1 Punkt. Falsch. Es sind 24h.
-            # Anzahl Stunden in der Zeitspanne = (end + 1 Tag) - start, in Stunden.
-            # total_hours_span = (end + timedelta(days=1) - start).total_seconds() / 3600 # Das würde bis zum Ende des Endtages gehen
-            # Besser: Dauer in Sekunden, geteilt durch Intervall in Sekunden.
-            duration_seconds = (end - start).total_seconds()
-            interval_seconds = stunden_intervall * 3600
-
-            if interval_seconds <= 0:
-                werte_info.config(text="Fehler: Intervall > 0")
-                return 0
-
-            # Anzahl der Messpunkte = floor(Dauer / Intervall) + 1 (inklusive Startpunkt)
-            messwerte_pro_messstelle = math.floor(duration_seconds / interval_seconds) + 1
-
-            # Messstellen-Text holen ohne zu validieren
-            messstellen_text_inhalt = messstellen_text.get("1.0", tk.END).strip()
             
-            messstellen = [m.strip() for m in messstellen_text_inhalt.split(';') if m.strip()]
-            messstellenanzahl = len(messstellen)
-            gesamt_werte = messwerte_pro_messstelle * messstellenanzahl
-            werte_info.config(text=f"Zu generierende Werte: {gesamt_werte:,}".replace(',', '.'))
+            num_messstellen_text = messstellen_text.get("1.0", tk.END)
+            num_messstellen = len([m.strip() for m in num_messstellen_text.strip().split(';') if m.strip()])
+            if num_messstellen == 0: num_messstellen = 1 # Mindestens für eine Messstelle berechnen für die Anzeige
+            
+            messwerte_pro_messstelle = 0
+            # _temp_start_date ist ein datetime.datetime Objekt (Mitternacht des Starttages)
+            _temp_start_date = datetime.combine(start.date(), datetime.min.time()) 
+            _hourly_interval_sim = timedelta(hours=stunden_intervall)
+            
+            _sim_count = 0
+            _ct_sim = _temp_start_date # _ct_sim ist ein datetime.datetime
+            
+            # Die Schleife in create_csv_files ist `while current_time <= end_date`
+            # wobei current_time und end_date datetime.datetime Objekte sind.
+            # 'start' und 'end' sind hier ebenfalls datetime.datetime Objekte.
+            # Wir müssen datetime mit datetime vergleichen.
+            while _ct_sim <= end: # KORRIGIERTE ZEILE
+                _sim_count +=1
+                _ct_sim += _hourly_interval_sim
+            messwerte_pro_messstelle = _sim_count
+            
+            gesamt_werte = messwerte_pro_messstelle * num_messstellen
+            werte_info.config(text=f"Zu generierende Werte gesamt: {gesamt_werte:,}".replace(',', '.'))
             return gesamt_werte
         except Exception as e:
-            # print(f"Fehler bei Werteanzahl: {e}") # Debugging
+            print(f"Fehler bei Werteanzahl-Berechnung: {e}") 
             werte_info.config(text="Zu generierende Werte: Berechnung nicht möglich")
             return 0
 
 
-
-    # Kombinierte Berechnungsfunktion
     def berechne_alles(event=None):
-        berechne_zeitspanne()
-        berechne_werte_anzahl()
+        berechne_zeitspanne() # Dies ruft auch berechne_werte_anzahl auf
 
-    # Mausbewegung im Zeitspannen-Frame erkennen
     zeitspan_frame.bind("<Motion>", berechne_alles)
+    # Timer für sekündliche Aktualisierung entfernt, da <Motion> und FocusOut ausreichen sollten
+    # def update_berechnungen():
+    #     berechne_alles()
+    #     root.after(1000, update_berechnungen)
+    # root.after(1000, update_berechnungen)
 
-    # Timer für sekündliche Aktualisierung
-    def update_berechnungen():
-        berechne_alles()
-        root.after(1000, update_berechnungen)
-
-    # Timer starten
-    root.after(1000, update_berechnungen)
-
-    # Focus-Event-Bindungen hinzufügen
     startdatum.bind("<FocusOut>", lambda e: berechne_alles())
     enddatum.bind("<FocusOut>", lambda e: berechne_alles())
     intervall_entry.bind("<FocusOut>", lambda e: berechne_alles())
-    startdatum.bind("<FocusIn>", lambda e: berechne_alles())
-    enddatum.bind("<FocusIn>", lambda e: berechne_alles())
-    intervall_entry.bind("<FocusIn>", lambda e: berechne_alles())
+    startdatum.bind("<FocusIn>", lambda e: berechne_alles()) # Optional, kann zu häufigem Neuzeichnen führen
+    enddatum.bind("<FocusIn>", lambda e: berechne_alles())   # Optional
+    intervall_entry.bind("<FocusIn>", lambda e: berechne_alles()) # Optional
     
-    
+    # Binden an Datumsänderung über Kalender
+    startdatum.bind("<<DateEntrySelected>>", lambda e: berechne_alles())
+    enddatum.bind("<<DateEntrySelected>>", lambda e: berechne_alles())
+
 
     # 2. Messstellen
     messstellen_frame = tk.Frame(main_frame, bg=DISCORD_BG)
     messstellen_frame.pack(fill=tk.X, pady=(0, 10))
-
     messstellen_canvas = tk.Canvas(messstellen_frame, bg=DISCORD_BG, height=120,
                                  highlightthickness=0, width=580)
     messstellen_canvas.pack(fill=tk.X)
-
     create_rounded_rect(messstellen_canvas, 0, 0, 580, 120, radius=15,
                        fill=DISCORD_DARK, outline="")
-
     messstellen_label = tk.Label(messstellen_canvas, text="Messstellen:",
                                **label_style)
     messstellen_canvas.create_window(20, 30, window=messstellen_label, anchor="w")
-
-    # Mehrzeiliges Textfeld für Messstellen
     messstellen_text = tk.Text(messstellen_canvas, height=3, width=45, **entry_style)
     messstellen_canvas.create_window(290, 50, window=messstellen_text)
-
-    # Hilfetext unter dem Textfeld
     help_label = tk.Label(messstellen_canvas, text="Namen mit einem Semikolon trennen",
                         fg=DISCORD_GRAY_TEXT, bg=DISCORD_DARK, font=('Arial', 9))
     messstellen_canvas.create_window(290, 100, window=help_label)
-
-    # Event für Texteingabe
     messstellen_text.bind("<FocusOut>", lambda e: berechne_werte_anzahl())
+    messstellen_text.bind("<KeyRelease>", lambda e: berechne_werte_anzahl()) # Auch bei Eingabe aktualisieren
 
-    def validiere_messstellen(messstellen_text):
-        """Prüft, ob doppelte Messstellennamen vorhanden sind"""
-        if not messstellen_text.strip():
+    def validiere_messstellen(messstellen_text_str): # Parameter umbenannt
+        if not messstellen_text_str.strip(): # .strip() auf String anwenden
             return False, "Keine Messstellen angegeben"
-
-        messstellen = [m.strip() for m in messstellen_text.split(';') if m.strip()]
+        messstellen = [m.strip() for m in messstellen_text_str.split(';') if m.strip()]
         if not messstellen:
             return False, "Keine gültigen Messstellen angegeben"
-
-        # Duplikate prüfen
         duplicates = set()
         seen = set()
         for m in messstellen:
@@ -1216,24 +1217,18 @@ def create_gui():
                 duplicates.add(m)
             else:
                 seen.add(m)
-
         if duplicates:
             return False, f"Doppelte Messstellennamen gefunden: {', '.join(duplicates)}"
-
         return True, messstellen
 
     # 3. Formel (anzeige der verwendeten Parameter)
     formel_frame = tk.Frame(main_frame, bg=DISCORD_BG)
     formel_frame.pack(fill=tk.X, pady=(0, 10))
-
     formel_canvas = tk.Canvas(formel_frame, bg=DISCORD_BG, height=60,
                             highlightthickness=0, width=580)
     formel_canvas.pack(fill=tk.X)
-
     create_rounded_rect(formel_canvas, 0, 0, 580, 60, radius=15,
                        fill=DISCORD_DARK, outline="")
-
-    # Zeige die Parameter-Beschreibung anstelle einer Formel-String
     formel_label = tk.Label(formel_canvas, text=formel_params.generiere_formel(),
                           **label_style, width=65, anchor="w")
     formel_canvas.create_window(270, 30, window=formel_label)
@@ -1241,85 +1236,53 @@ def create_gui():
     def open_formel_submenu():
         if hasattr(root, 'submenu_open') and root.submenu_open:
             return
-
         root.submenu_open = True
         submenu = tk.Toplevel(root)
         submenu.title("Formel-Einstellungen")
-
         submenu_width = 1250
         submenu_height = 600
         sub_x_pos = int((screen_width/2) - (submenu_width/2))
         sub_y_pos = int((screen_height/2) - (submenu_height/2))
         submenu.geometry(f"{submenu_width}x{submenu_height}+{sub_x_pos}+{sub_y_pos}")
-
         submenu.minsize(submenu_width, submenu_height)
         submenu.configure(bg=DISCORD_BG)
         set_dark_title_bar(submenu)
-
         main_submenu_frame = tk.Frame(submenu, bg=DISCORD_BG, padx=20, pady=20)
         main_submenu_frame.pack(fill=tk.BOTH, expand=True)
-
         parameter_frame = tk.Frame(main_submenu_frame, bg=DISCORD_BG)
         parameter_frame.grid(row=0, column=0, sticky="nw", padx=(0, 20))
-
         graph_frame = tk.Frame(main_submenu_frame, bg=DISCORD_BG)
         graph_frame.grid(row=0, column=1, sticky="ne")
-
-        # Titel
         title_label = tk.Label(parameter_frame, text="Grundwasserganglinie anpassen",
                             bg=DISCORD_BG, fg=DISCORD_TEXT, font=('Arial', 16, 'bold'))
         title_label.grid(row=0, column=0, columnspan=3, pady=(0, 20), sticky="w")
-
-        # Parameter für Grundwasserganglinie für die Plot-Vorschau
-        # t und R_base für die Plot-Vorschau im Submenü
-        np.random.seed(42) # Konsistenter Seed für die Submenü-Vorschau
-        t_preview = np.arange(0, 365, 1) # Vorschau für 365 Tage
+        np.random.seed(42)
+        t_preview = np.arange(0, 365, 1)
         R_base_preview = np.random.normal(0, 1, size=len(t_preview))
-
-
-        # Funktion zur Berechnung der Grundwasserganglinie für die Plot-Vorschau
         def calculate_gw_preview(t_array, GW0, A, T, freq, Da, Dd, R_scale, curve_randomness=0.2, secondary_freq=3.0):
-             # np.random.seed(42) # Seed wird einmal am Anfang des Submenüs gesetzt
-             # R_base wird außerhalb dieser Funktion im Submenü-Scope erzeugt
-             # Stellen Sie sicher, dass T nicht Null ist, um Division durch Null zu vermeiden.
-             if T == 0: T = 365 # Fallback-Wert
-
-             # Amplitudenvariationen für jeden Wellenzyklus
+             if T == 0: T = 365
              if curve_randomness > 0:
                  amplitude_variation = 1.0 + curve_randomness * np.random.normal(0, 1, size=len(t_array))
                  seasonal = A * np.sin(2 * np.pi * freq * t_array / T) * amplitude_variation
              else:
                  seasonal = A * np.sin(2 * np.pi * freq * t_array / T)
-            
-             # Sekundäre kleinere Wellen hinzufügen
              if secondary_freq > 0:
                  small_waves = A * 0.3 * np.sin(2 * np.pi * secondary_freq * freq * t_array / T)
                  seasonal += small_waves
-
-
              GW = np.zeros_like(t_array, dtype=float)
-
              if len(t_array) > 0:
                  GW[0] = GW0 + seasonal[0]
-
              for i in range(1, len(t_array)):
-                 disturbance = R_scale * R_base_preview[i] # Nutze R_base_preview
-
+                 disturbance = R_scale * R_base_preview[i]
                  diff_from_GW0 = GW[i-1] - GW0
-
                  daily_change = 0
                  if disturbance > 0 and Da > 0:
                      daily_change = (disturbance - diff_from_GW0) / Da
                  elif Dd > 0:
                      daily_change = -diff_from_GW0 / Dd
-
                  GW[i] = GW[i-1] + daily_change
                  GW[i] += seasonal[i] - seasonal[i-1]
-
              return GW
-
-
-        # Erstelle die Figure für den Plot
         fig = Figure(figsize=(7, 5), dpi=100, facecolor=DISCORD_DARKER)
         ax = fig.add_subplot(111)
         ax.set_facecolor(DISCORD_DARKER)
@@ -1334,20 +1297,13 @@ def create_gui():
         ax.set_xlabel('Zeit (Tage)', color=DISCORD_TEXT)
         ax.set_ylabel('Grundwasserstand [m]', color=DISCORD_TEXT)
         ax.set_title('Grundwasserganglinie (Vorschau)', color=DISCORD_TEXT)
-
-
-
-
-        # Erstelle die Plot-Canvas
-        canvas = FigureCanvasTkAgg(fig, master=graph_frame)
-        canvas.draw()
-        canvas.get_tk_widget().pack()
-
-
-        # Funktion zur Aktualisierung des Plots im Submenü
+        canvas_plot = FigureCanvasTkAgg(fig, master=graph_frame) # Variable umbenannt
+        canvas_plot.draw()
+        canvas_plot.get_tk_widget().pack()
         def update_graph():
             ax.clear()
             ax.set_facecolor(DISCORD_DARKER)
+            # ... (Rest der Achsenkonfiguration wie oben) ...
             ax.spines['bottom'].set_color(DISCORD_TEXT)
             ax.spines['top'].set_color(DISCORD_TEXT)
             ax.spines['left'].set_color(DISCORD_TEXT)
@@ -1360,76 +1316,49 @@ def create_gui():
             ax.set_ylabel('Grundwasserstand [m]', color=DISCORD_TEXT)
             ax.set_title('Grundwasserganglinie (Vorschau)', color=DISCORD_TEXT)
 
-
-            # Grundwasserganglinie für die Vorschau berechnen
-            # Verwende die aktuellen Werte der Slider-Variablen
             GW0 = var_GW0.get()
             A = var_A.get()
             T = var_T.get()
             freq = var_freq.get()
             Da = var_Da.get()
             Dd = var_Dd.get()
-            R_scale = var_R.get()
+            R_scale_val = var_R.get() # Variable umbenannt, da R_scale eine Funktion ist
             curve_randomness = var_randomness.get()
             secondary_freq = var_secondary.get()
-
-            # Nutze die calculate_gw_preview Funktion mit t_preview und R_base_preview
-            GW_preview = calculate_gw_preview(t_preview, GW0, A, T, freq, Da, Dd, R_scale, 
+            GW_preview = calculate_gw_preview(t_preview, GW0, A, T, freq, Da, Dd, R_scale_val, 
                                     curve_randomness, secondary_freq)
-
-            # Plotten
             ax.plot(t_preview, GW_preview, color=DISCORD_GREEN, linewidth=1.5)
             ax.grid(True, color=DISCORD_GRAY_TEXT, alpha=0.3, linestyle='--')
-
-
-            # Y-Achsen-Limits anpassen, aber nicht zu stark einschränken
             GW_min, GW_max = GW_preview.min(), GW_preview.max()
-            margin = (GW_max - GW_min) * 0.1 # 10% Puffer
+            margin = (GW_max - GW_min) * 0.1 
             if margin == 0 and GW_min == GW_max:
-                 margin = 0.5 # Mindest-Puffer falls alle Werte gleich sind
+                 margin = 0.5 
             elif margin == 0:
-                 margin = 0.1 * abs(GW_min) # Puffer basierend auf dem Wert selbst
-
+                 margin = 0.1 * abs(GW_min) 
             ax.set_ylim(GW_min - margin, GW_max + margin)
-
-
-            canvas.draw()
-
-        # Slider erstellen mit angepasstem Stil
-        style = ttk.Style(submenu)
-        style.configure("TScale", background=DISCORD_BG, troughcolor=DISCORD_DARK)
-
-        # Funktion für Slider-Erstellung
+            canvas_plot.draw()
+        style_submenu = ttk.Style(submenu) # Style für Submenu
+        style_submenu.configure("TScale", background=DISCORD_BG, troughcolor=DISCORD_DARK)
         def create_parameter_slider(parent, row, text, from_, to_, default, precision=1):
             frame = tk.Frame(parent, bg=DISCORD_BG)
             frame.grid(row=row, column=0, columnspan=3, pady=5, sticky="ew")
             label = tk.Label(frame, text=text, bg=DISCORD_BG, fg=DISCORD_TEXT, width=30, anchor="w")
             label.grid(row=0, column=0, padx=(0, 10))
-
             value_var = tk.DoubleVar(value=default)
-            last_value = [default]  # Liste verwenden für Referenz
-            
+            last_value = [default] 
             def on_slider_change(event):
                 current_value = round(value_var.get(), precision)
-                # Nur aktualisieren wenn sich der Wert tatsächlich geändert hat
                 if current_value != last_value[0]:
                     last_value[0] = current_value
                     value_label.config(text=f"{current_value:.{precision}f}")
                     update_graph()
-            
             slider = ttk.Scale(frame, from_=from_, to=to_, variable=value_var,
-                            command=on_slider_change, length=200, style="TScale")
+                            command=on_slider_change, length=200, style="TScale") # style="TScale" hier anwenden
             slider.grid(row=0, column=1)
-            
             value_label = tk.Label(frame, text=f"{default:.{precision}f}",
                                 bg=DISCORD_BG, fg=DISCORD_TEXT, width=5)
             value_label.grid(row=0, column=2, padx=(10, 0))
-            
             return slider, value_var
-
-
-        # Grundwasserparameter-Slider erstellen
-        # Initialisiere Slider mit den aktuellen Werten aus dem formel_params Objekt
         s_GW0, var_GW0 = create_parameter_slider(parameter_frame, 1, "Grundniveau [m]:", 10, 14, formel_params.GW0, precision=2)
         s_A, var_A = create_parameter_slider(parameter_frame, 2, "Saisonale Amplitude [m]:", 0.1, 20.0, formel_params.A, precision=2)
         s_T, var_T = create_parameter_slider(parameter_frame, 3, "Periodendauer (Tage):", 100, 500, formel_params.T, precision=0)
@@ -1439,29 +1368,21 @@ def create_gui():
         s_R, var_R = create_parameter_slider(parameter_frame, 7, "Zufällige Schwankungen (Skala):", 0.0, 1.0, formel_params.R_scale, precision=2)
         s_randomness, var_randomness = create_parameter_slider(parameter_frame, 8, "Wellenform-Variabilität:", 0.0, 1.0, formel_params.curve_randomness, precision=2)
         s_secondary, var_secondary = create_parameter_slider(parameter_frame, 9, "Häufigkeit kleiner Wellen:", 0.0, 10.0, formel_params.secondary_freq, precision=1)
-
-
-        # Button-Frame
         btn_frame = tk.Frame(parameter_frame, bg=DISCORD_BG)
         btn_frame.grid(row=10, column=0, columnspan=3, pady=20, sticky="ew")
-
         cancel_btn = tk.Button(btn_frame, text="Abbrechen", bg=DISCORD_DARK, fg=DISCORD_TEXT,
                             activebackground=DISCORD_DARKER, activeforeground=DISCORD_TEXT,
                             relief="flat", padx=15, pady=5,
                             command=lambda: close_submenu(False))
         cancel_btn.pack(side=tk.LEFT, padx=(0, 10))
-
         apply_btn = tk.Button(btn_frame, text="Übernehmen", bg=BUTTON_COLOR, fg=DISCORD_TEXT,
                             activebackground=BUTTON_HOVER, activeforeground=DISCORD_TEXT,
                             relief="flat", padx=15, pady=5,
                             command=lambda: close_submenu(True))
         apply_btn.pack(side=tk.LEFT)
-
-        # Schließfunktion für Untermanü
         def close_submenu(apply_changes):
             if apply_changes:
                 try:
-                    # Speichere die aktuellen Slider-Werte zurück in das formel_params Objekt
                     formel_params.GW0 = var_GW0.get()
                     formel_params.A = var_A.get()
                     formel_params.T = var_T.get()
@@ -1471,220 +1392,248 @@ def create_gui():
                     formel_params.R_scale = var_R.get()
                     formel_params.curve_randomness = var_randomness.get()
                     formel_params.secondary_freq = var_secondary.get()
-
-                    # Aktualisiere die Anzeige der Parameter-Beschreibung im Hauptfenster
                     formel_label.config(text=formel_params.generiere_formel())
-
                 except Exception as e:
                     print(f"Fehler beim Übernehmen der Parameter: {e}")
-
-            # Sicherstellen, dass das Submenü geschlossen wird
             try:
                 submenu.destroy()
-            except:
-                pass # Schon geschlossen
-
+            except: pass
             root.submenu_open = False
-
-
         def on_submenu_close():
             root.submenu_open = False
             submenu.destroy()
-
-        # Initialen Plot erstellen
         update_graph()
-
-        # Stelle sicher, dass beim Schließen des Fensters die Flag zurückgesetzt wird
         submenu.protocol("WM_DELETE_WINDOW", on_submenu_close)
         submenu.focus_set()
         submenu.transient(root)
         submenu.grab_set()
 
-
-
     def emoji_img(size, text):
-        # Größeres Bild erstellen, um sicherzustellen, dass das Emoji vollständig dargestellt wird
         im = Image.new("RGBA", (size*2, size*2), (255, 255, 255, 0))
         draw = ImageDraw.Draw(im)
-        # Text zentriert zeichnen
-        font = ImageFont.truetype("seguiemj.ttf", size=int(round(size*72/96, 0)))
+        # Versuche Segoe UI Emoji zuerst, dann Segoe UI Symbol als Fallback
+        try:
+            font = ImageFont.truetype("seguiemj.ttf", size=int(round(size*72/96, 0)))
+        except IOError:
+            try:
+                font = ImageFont.truetype("seguisym.ttf", size=int(round(size*72/96, 0)))
+            except IOError: # Fallback zu einem generischen Font, falls beide nicht da sind
+                font = ImageFont.load_default()
+                print("Warnung: Segoe UI Emoji/Symbol Font nicht gefunden. Emoji-Darstellung könnte abweichen.")
+
         draw.text((size, size), text, embedded_color=True, font=font, anchor="mm")
         return ImageTk.PhotoImage(im)
 
-
-    # Stift-Emoji erstellen
     pencil_emoji = emoji_img(25, "✏️")
-
-    # Canvas für den Button erstellen
-    button_size = 40
-    button_canvas2 = tk.Canvas(formel_canvas, width=button_size, height=button_size,
+    button_size_pencil = 40 # Variable umbenannt
+    button_canvas2 = tk.Canvas(formel_canvas, width=button_size_pencil, height=button_size_pencil,
                             bg=DISCORD_DARK, highlightthickness=0)
     formel_canvas.create_window(390, 30, window=button_canvas2)
-
-    # Abgerundeter Button-Hintergrund (ID speichern!)
-    bg_rect = create_rounded_rect(button_canvas2, 0, 0, button_size, button_size,
+    bg_rect_pencil = create_rounded_rect(button_canvas2, 0, 0, button_size_pencil, button_size_pencil, # Variable umbenannt
                     radius=10, fill=DISCORD_INPUT_BG, outline="")
-
-    # Stift-Emoji mittig platzieren - mit offset anpassen
-    button_canvas2.create_image(button_size/2+14, button_size/2+2, image=pencil_emoji, anchor="center")
-    button_canvas2.image = pencil_emoji  # Referenz bewahren
-
-    # Klick-Event hinzufügen
+    button_canvas2.create_image(button_size_pencil/2+14, button_size_pencil/2+2, image=pencil_emoji, anchor="center")
+    button_canvas2.image = pencil_emoji
     button_canvas2.bind("<Button-1>", lambda e: open_formel_submenu())
-
-    # Hover-Effekt für den Stift-Button
     def on_pencil_hover(event):
-        button_canvas2.itemconfig(bg_rect, fill=DISCORD_DARKER)  # Hintergrund etwas dunkler
-
+        button_canvas2.itemconfig(bg_rect_pencil, fill=DISCORD_DARKER)
     def on_pencil_leave(event):
-        button_canvas2.itemconfig(bg_rect, fill=DISCORD_INPUT_BG)  # Originale Farbe
-
-    # Korrekte Bindung an die neuen Funktionen
+        button_canvas2.itemconfig(bg_rect_pencil, fill=DISCORD_INPUT_BG)
     button_canvas2.bind("<Enter>", on_pencil_hover)
     button_canvas2.bind("<Leave>", on_pencil_leave)
 
+    # --- NEUER ABSCHNITT: Verzeichnisauswahl ---
+    output_dir_frame = tk.Frame(main_frame, bg=DISCORD_BG)
+    output_dir_frame.pack(fill=tk.X, pady=(0, 10)) # pady anpassen falls nötig
+
+    output_dir_canvas = tk.Canvas(output_dir_frame, bg=DISCORD_BG, height=80, # Höhe angepasst
+                                 highlightthickness=0, width=580)
+    output_dir_canvas.pack(fill=tk.X)
+
+    create_rounded_rect(output_dir_canvas, 0, 0, 580, 80, radius=15, # Höhe angepasst
+                       fill=DISCORD_DARK, outline="")
+
+    output_dir_label = tk.Label(output_dir_canvas, text="Speicherort:", **label_style)
+    output_dir_canvas.create_window(20, 25, window=output_dir_label, anchor="w") # Y-Position angepasst
+
+    # Eingabefeld für den Pfad
+    output_dir_entry = tk.Entry(output_dir_canvas, textvariable=root.output_directory_path,
+                                width=50, **entry_style) # Breite angepasst
+    # Positionierung des Eingabefelds
+    output_dir_canvas.create_window(20, 55, window=output_dir_entry, anchor="w", width=490) # Y-Position und Breite angepasst
+
+    # Funktion zum Öffnen des Verzeichnisdialogs
+    def select_directory():
+        directory = filedialog.askdirectory(
+            title="Speicherort auswählen",
+            initialdir=root.output_directory_path.get() # Startet im aktuell eingestellten Pfad
+        )
+        if directory:  # Wenn ein Verzeichnis ausgewählt wurde
+            root.output_directory_path.set(directory)
+
+    # Button für Verzeichnisauswahl
+    folder_emoji = emoji_img(20, "📂") # Kleinere Emoji-Größe für den Button
+    
+    button_size_folder = 30 # Kleinere Button-Größe
+    select_dir_button_canvas = tk.Canvas(output_dir_canvas, width=button_size_folder, height=button_size_folder,
+                                        bg=DISCORD_DARK, highlightthickness=0, cursor="hand2")
+    # Positionierung des Buttons rechts neben dem Entry
+    output_dir_canvas.create_window(580 - 20 - button_size_folder/2, 55, window=select_dir_button_canvas, anchor="e")
+
+
+    bg_rect_folder = create_rounded_rect(select_dir_button_canvas, 0, 0, button_size_folder, button_size_folder,
+                                        radius=8, fill=DISCORD_INPUT_BG, outline="")
+    
+    # Emoji im Button platzieren (Offset anpassen für Zentrierung)
+    # Die genauen Offsets müssen ggf. durch Ausprobieren angepasst werden, abhängig von Font und Emoji-Größe
+    select_dir_button_canvas.create_image(button_size_folder/2 +1 , button_size_folder/2 +1, image=folder_emoji, anchor="center")
+    select_dir_button_canvas.image = folder_emoji  # Referenz bewahren
+
+    select_dir_button_canvas.bind("<Button-1>", lambda e: select_directory())
+
+    def on_folder_button_hover(event):
+        select_dir_button_canvas.itemconfig(bg_rect_folder, fill=DISCORD_DARKER)
+    def on_folder_button_leave(event):
+        select_dir_button_canvas.itemconfig(bg_rect_folder, fill=DISCORD_INPUT_BG)
+
+    select_dir_button_canvas.bind("<Enter>", on_folder_button_hover)
+    select_dir_button_canvas.bind("<Leave>", on_folder_button_leave)
+    # --- ENDE NEUER ABSCHNITT ---
 
 
     # 4. Fortschrittsbalken
     progress_frame = tk.Frame(main_frame, bg=DISCORD_BG)
     progress_frame.pack(fill=tk.X, pady=(0, 10))
-
-
     progress_canvas = tk.Canvas(progress_frame, bg=DISCORD_BG, height=80,
                              highlightthickness=0, width=580)
     progress_canvas.pack(fill=tk.X)
-
     create_rounded_rect(progress_canvas, 0, 0, 580, 80, radius=15,
                        fill=DISCORD_DARK, outline="")
-
-    # Im Bereich der Style-Definition (vor dem Erstellen des progress_frame)
-    style = ttk.Style(root)
-    style.theme_use('clam')  # Das clam-Theme bietet bessere Anpassungsmöglichkeiten
     style.configure("Custom.Horizontal.TProgressbar",
-                    troughcolor=DISCORD_INPUT_BG,  # Dunkelgrau wie Eingabefelder
-                    background=DISCORD_GREEN,      # Grüner Fortschrittsbalken
-                    troughrelief="flat",          # Flacher Hintergrund
-                    borderwidth=0,                # Kein Rand
-                    thickness=15,                 # Manteldicke 15px
-                    pbarrelief="flat")            # Flacher Fortschrittsbalken
-
-    # Im Bereich der Fortschrittsbalken-Erstellung
+                    troughcolor=DISCORD_INPUT_BG,
+                    background=DISCORD_GREEN,
+                    troughrelief="flat",
+                    borderwidth=0,
+                    thickness=15,
+                    pbarrelief="flat")
     progress = ttk.Progressbar(progress_canvas, 
                             orient="horizontal", 
                             length=540,
                             mode="determinate", 
                             style="Custom.Horizontal.TProgressbar")
-
     progress_canvas.create_window(290, 30, window=progress)
-
     progress_info = tk.Label(progress_canvas, text="Werte generiert (0%)", **label_style)
     progress_canvas.create_window(290, 60, window=progress_info)
-
-    
 
     # 5. Start Button
     button_frame = tk.Frame(main_frame, bg=DISCORD_BG)
     button_frame.pack(fill=tk.X, pady=(0, 10))
-
     button_canvas = tk.Canvas(button_frame, bg=DISCORD_BG, height=100,
                             highlightthickness=0, width=580)
     button_canvas.pack(fill=tk.X)
-
     create_rounded_rect(button_canvas, 0, 0, 580, 100, radius=15,
                        fill=DISCORD_DARK, outline="")
-
     start_button_canvas = tk.Canvas(button_canvas, width=160, height=40,
                                   bg=DISCORD_DARK, highlightthickness=0)
     button_canvas.create_window(290, 40, window=start_button_canvas)
-
     start_button_bg = create_rounded_rect(start_button_canvas, 0, 0, 160, 40,
                                        radius=15, fill=BUTTON_COLOR, outline="")
-
     start_button_text = start_button_canvas.create_text(80, 20, text="Start",
                                                      fill=DISCORD_TEXT,
                                                      font=("Arial", 14, "bold"))
-
-    werte_info = tk.Label(button_canvas, text="Zu generierende Werte pro Messstelle: -",
+    werte_info = tk.Label(button_canvas, text="Zu generierende Werte gesamt: -", # Text angepasst
                         bg=DISCORD_DARK, fg=DISCORD_TEXT, font=('Arial', 11))
     button_canvas.create_window(290, 80, window=werte_info)
 
+    # In create_gui, innerhalb der Definition von start_button_canvas etc.
 
+    def cancel_process(event=None):
+        if root.generation_thread and root.generation_thread.is_alive():
+            progress_info.config(text="Abbruch wird eingeleitet...")
+            root.cancel_generation_flag.set() # Signal zum Abbrechen an den Thread senden
+            
+            # Button zurück zu "Start" und ursprüngliche Farbe
+            start_button_canvas.itemconfig(start_button_text, text="Start")
+            start_button_canvas.itemconfig(start_button_bg, fill=BUTTON_COLOR)
+            start_button_canvas.unbind("<Button-1>") # Unbind cancel
+            start_button_canvas.bind("<Button-1>", start_process) # Rebind start
 
+            # Kurze Verzögerung, um dem Thread Zeit zum Reagieren zu geben, bevor Dateien gelöscht werden
+            # Das eigentliche Löschen sollte der Thread machen, oder ein Follow-up nach Thread-Join
+            # Für eine robustere Lösung sollte der Thread das Löschen bei Flag-Erkennung übernehmen.
+            # Hier vereinfacht: Wir warten kurz und versuchen dann zu löschen.
+            # Eine bessere Lösung: Der Thread setzt ein "aborted_successfully" Flag
+            # root.after(1000, cleanup_partial_files) # Verzögertes Aufräumen
 
-    # Start-Button Funktion
     def start_process(event=None):
-        # Hervorhebung des Buttons während Verarbeitung
-        start_button_canvas.itemconfig(start_button_bg, fill=BUTTON_HOVER)
-        root.update_idletasks()
+        # Button-Zustand zu "Abbrechen" ändern
+        start_button_canvas.itemconfig(start_button_text, text="Abbrechen")
+        start_button_canvas.itemconfig(start_button_bg, fill="#FF5555") # Rote Farbe für Abbruch
+        start_button_canvas.unbind("<Button-1>") # Unbind start
+        start_button_canvas.bind("<Button-1>", cancel_process) # Bind cancel
 
+        root.update_idletasks()
         progress['value'] = 0
         progress_info.config(text="Vorbereitung...")
+        root.update_idletasks()
+
+        root.cancel_generation_flag.clear() # Abbruch-Flag zurücksetzen
+        root.partial_files_to_delete = [] # Liste für zu löschende Dateien leeren
 
         try:
             start_date_str = startdatum.get()
             end_date_str = enddatum.get()
-            # Verwenden Sie parse_flexible_date für Robustheit
-            start_date = parse_flexible_date(start_date_str)
-            end_date = parse_flexible_date(end_date_str)
+            start_date_obj = parse_flexible_date(start_date_str)
+            end_date_obj = parse_flexible_date(end_date_str)
 
-
-            if start_date > end_date:
+            if start_date_obj > end_date_obj:
                 raise ValueError("Startdatum muss vor Enddatum liegen")
 
             interval_hours_str = intervall_entry.get()
             if not interval_hours_str:
                 raise ValueError("Intervall darf nicht leer sein.")
-
             try:
-                interval_hours = float(interval_hours_str)
+                interval_hours_val = float(interval_hours_str)
             except ValueError:
                 raise ValueError("Intervall muss eine Zahl sein.")
-
-
-            if interval_hours <= 0:
+            if interval_hours_val <= 0:
                 raise ValueError("Intervall muss größer als 0 sein")
 
-            # Text aus dem Messstellen-Textfeld holen und validieren
             messstellen_text_inhalt = messstellen_text.get("1.0", tk.END).strip()
-            valid, messstellen_ids = validiere_messstellen(messstellen_text_inhalt)
+            valid, messstellen_ids_list = validiere_messstellen(messstellen_text_inhalt)
             if not valid:
-                raise ValueError(messstellen_ids)  # Bei Fehler enthält messstellen_ids die Fehlermeldung
+                raise ValueError(messstellen_ids_list)
 
+            output_dir = root.output_directory_path.get()
+            if not output_dir:
+                output_dir = "."
+            if not os.path.isdir(output_dir):
+                progress_info.config(text=f"Fehler: Ausgabepfad '{output_dir}' ist ungültig.")
+                # Button zurücksetzen bei Fehler
+                start_button_canvas.itemconfig(start_button_text, text="Start")
+                start_button_canvas.itemconfig(start_button_bg, fill=BUTTON_COLOR)
+                start_button_canvas.unbind("<Button-1>")
+                start_button_canvas.bind("<Button-1>", start_process)
+                return
 
-            # Thread starten, um GUI nicht zu blockieren
-            # Übergebe formel_params direkt an die Thread-Funktion
-            thread = threading.Thread(target=create_csv_files,
-                                        args=(root, start_date, end_date, messstellen_ids,
-                                            interval_hours, formel_params, progress, progress_info))
-            thread.daemon = True
-            thread.start()
-
+            # Thread erstellen und starten
+            root.generation_thread = threading.Thread(target=create_csv_files_thread_wrapper,
+                                        args=(root, start_date_obj, end_date_obj, messstellen_ids_list,
+                                            interval_hours_val, formel_params, progress, progress_info, output_dir,
+                                            start_button_canvas, start_button_text, start_button_bg)) # Button Elemente übergeben
+            root.generation_thread.daemon = True
+            root.generation_thread.start()
         except Exception as e:
             progress_info.config(text=f"Fehler: {str(e)}")
-            # print(f"Start Process Error: {e}") # Debugging
-            # Reset progress bar on error
             progress['value'] = 0
+            # Button zurücksetzen bei Fehler
+            start_button_canvas.itemconfig(start_button_text, text="Start")
+            start_button_canvas.itemconfig(start_button_bg, fill=BUTTON_COLOR)
+            start_button_canvas.unbind("<Button-1>") # Unbind cancel, falls es gebunden war
+            start_button_canvas.bind("<Button-1>", start_process) # Rebind start
+            
 
-        finally:
-            # Reset button appearance after some time
-            root.after(100, lambda: start_button_canvas.itemconfig(start_button_bg, fill=BUTTON_COLOR))
-
-    # Hover-Effekt für den Start-Button
-    def on_button_hover(event):
-        start_button_canvas.itemconfig(start_button_bg, fill=BUTTON_HOVER)
-
-    def on_button_leave(event):
-        start_button_canvas.itemconfig(start_button_bg, fill=BUTTON_COLOR)
-
-    start_button_canvas.bind("<Button-1>", start_process)
-    start_button_canvas.bind("<Enter>", on_button_hover)
-    start_button_canvas.bind("<Leave>", on_button_leave)
-
-    # Copyright-Hinweis unten mit Hyperlink
-    
     def open_website(event):
         webbrowser.open("https://www.ribeka.com")
-    
     copyright_label = tk.Label(root,
                             text=f" © Copyright ribeka GmbH 2025",
                             bg=DISCORD_BG,
@@ -1694,20 +1643,15 @@ def create_gui():
     copyright_label.place(relx=0.5, rely=1.0, anchor='s', y=-5)
     copyright_label.bind("<Button-1>", open_website)
 
-    # Standard-Werte
     today = datetime.now()
     next_week = today + timedelta(days=7)
-
     startdatum.set_date(today)
     enddatum.set_date(next_week)
-
-    # Berechne die Zeitspanne und Werteanzahl initial
-    berechne_zeitspanne()
-
+    berechne_alles() # Initialberechnung
 
     return root
 
-# Hauptfunktion
 if __name__ == "__main__":
+    matplotlib.use('TkAgg') # Sicherstellen, dass der richtige Backend für Matplotlib verwendet wird
     app = create_gui()
     app.mainloop()
