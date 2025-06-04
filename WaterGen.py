@@ -1438,14 +1438,14 @@ def create_gui():
         draw.text((size, size), text, embedded_color=True, font=font, anchor="mm")
         return ImageTk.PhotoImage(im)
 
-    pencil_emoji = emoji_img(25, "✏️")
-    button_size_pencil = 40 # Variable umbenannt
+    pencil_emoji = emoji_img(20, "✏️")
+    button_size_pencil = 30
     button_canvas2 = tk.Canvas(formel_canvas, width=button_size_pencil, height=button_size_pencil,
                             bg=DISCORD_DARK, highlightthickness=0)
     formel_canvas.create_window(390, 30, window=button_canvas2)
-    bg_rect_pencil = create_rounded_rect(button_canvas2, 0, 0, button_size_pencil, button_size_pencil, # Variable umbenannt
+    bg_rect_pencil = create_rounded_rect(button_canvas2, 0, 0, button_size_pencil, button_size_pencil,
                     radius=10, fill=DISCORD_INPUT_BG, outline="")
-    button_canvas2.create_image(button_size_pencil/2+14, button_size_pencil/2+2, image=pencil_emoji, anchor="center")
+    button_canvas2.create_image(button_size_pencil/2+11, button_size_pencil/2+2, image=pencil_emoji, anchor="center")
     button_canvas2.image = pencil_emoji
     button_canvas2.bind("<Button-1>", lambda e: open_formel_submenu())
     def on_pencil_hover(event):
@@ -1455,52 +1455,92 @@ def create_gui():
     button_canvas2.bind("<Enter>", on_pencil_hover)
     button_canvas2.bind("<Leave>", on_pencil_leave)
 
-    # --- NEUER ABSCHNITT: Verzeichnisauswahl ---
-    output_dir_frame = tk.Frame(main_frame, bg=DISCORD_BG)
-    output_dir_frame.pack(fill=tk.X, pady=(0, 10)) # pady anpassen falls nötig
 
-    output_dir_canvas = tk.Canvas(output_dir_frame, bg=DISCORD_BG, height=80, # Höhe angepasst
-                                 highlightthickness=0, width=580)
+    output_dir_frame = tk.Frame(main_frame, bg=DISCORD_BG)
+    output_dir_frame.pack(fill=tk.X, pady=(0, 10))
+
+    output_dir_canvas = tk.Canvas(output_dir_frame, bg=DISCORD_BG, height=80,
+                                highlightthickness=0, width=580)
     output_dir_canvas.pack(fill=tk.X)
 
-    create_rounded_rect(output_dir_canvas, 0, 0, 580, 80, radius=15, # Höhe angepasst
-                       fill=DISCORD_DARK, outline="")
+    create_rounded_rect(output_dir_canvas, 0, 0, 580, 80, radius=15,
+                    fill=DISCORD_DARK, outline="")
 
     output_dir_label = tk.Label(output_dir_canvas, text="Speicherort:", **label_style)
-    output_dir_canvas.create_window(20, 25, window=output_dir_label, anchor="w") # Y-Position angepasst
+    output_dir_canvas.create_window(20, 25, window=output_dir_label, anchor="w")
 
-    # Eingabefeld für den Pfad
-    output_dir_entry = tk.Entry(output_dir_canvas, textvariable=root.output_directory_path,
-                                width=50, **entry_style) # Breite angepasst
-    # Positionierung des Eingabefelds
-    output_dir_canvas.create_window(20, 55, window=output_dir_entry, anchor="w", width=490) # Y-Position und Breite angepasst
+    
+    path_button_y_center = 55
+    path_element_height = 30
+    folder_button_width = 30
+    
+        # Calculate width for the path entry's background canvas
+    # Total canvas width (580) - left padding (20) - right padding (20) - folder button width (30) - gap (10)
+    path_entry_bg_width = 580 - 20 - 20 - folder_button_width - 10 # Results in 500
 
-    # Funktion zum Öffnen des Verzeichnisdialogs
-    def select_directory():
-        directory = filedialog.askdirectory(
-            title="Speicherort auswählen",
-            initialdir=root.output_directory_path.get() # Startet im aktuell eingestellten Pfad
-        )
-        if directory:  # Wenn ein Verzeichnis ausgewählt wurde
-            root.output_directory_path.set(directory)
+    # 1. Create a canvas for the path entry's rounded background
+    path_entry_bg_canvas = tk.Canvas(output_dir_canvas,
+                                    width=path_entry_bg_width,
+                                    height=path_element_height,
+                                    bg=DISCORD_DARK,  # Match section background, the rounded rect will cover this
+                                    highlightthickness=0)
+    
+    # Draw the rounded rectangle on this canvas
+    create_rounded_rect(path_entry_bg_canvas, 0, 0,
+                        path_entry_bg_width, path_element_height,
+                        radius=8, fill=DISCORD_INPUT_BG, outline="")
+
+    # 2. The actual Entry widget for the path
+    output_dir_entry = tk.Entry(path_entry_bg_canvas,  # Parent is now path_entry_bg_canvas
+                                textvariable=root.output_directory_path,
+                                width=45,  # Character width hint, pixel width is controlled by create_window
+                                **entry_style)  # Includes bg, fg, bd=0, relief="flat"
+    
+    # Place the Entry widget inside its background canvas, centered with padding
+    path_entry_bg_canvas.create_window(path_entry_bg_width / 2,
+                                    path_element_height / 2,
+                                    width=path_entry_bg_width - 12,  # Pixel width for entry (6px padding each side)
+                                    height=path_element_height - 8, # Pixel height for entry (4px padding top/bottom)
+                                    window=output_dir_entry)
+
+    # Place the path_entry_bg_canvas (containing the Entry) onto the main output_dir_canvas
+    output_dir_canvas.create_window(20, path_button_y_center,
+                                    window=path_entry_bg_canvas,
+                                    anchor="w")  # Anchor "w" (west/left-middle)
+    
 
     # Button für Verzeichnisauswahl
     folder_emoji = emoji_img(20, "📂") # Kleinere Emoji-Größe für den Button
     
-    button_size_folder = 30 # Kleinere Button-Größe
-    select_dir_button_canvas = tk.Canvas(output_dir_canvas, width=button_size_folder, height=button_size_folder,
-                                        bg=DISCORD_DARK, highlightthickness=0, cursor="hand2")
-    # Positionierung des Buttons rechts neben dem Entry
-    output_dir_canvas.create_window(580 - 20 - button_size_folder/2, 55, window=select_dir_button_canvas, anchor="e")
+    select_dir_button_canvas = tk.Canvas(output_dir_canvas,
+                                        width=folder_button_width,
+                                        height=path_element_height, # Use consistent height
+                                        bg=DISCORD_DARK, # Match section background
+                                        highlightthickness=0, cursor="hand2")
+    
+    # Position the folder button canvas to the right of the path entry, with a gap
+    folder_button_x_start = 20 + path_entry_bg_width + 10  # Left_pad + width_of_path_bg + gap
+    output_dir_canvas.create_window(folder_button_x_start, path_button_y_center,
+                                    window=select_dir_button_canvas,
+                                    anchor="w") # Anchor "w" (west/left-middle)
 
-
-    bg_rect_folder = create_rounded_rect(select_dir_button_canvas, 0, 0, button_size_folder, button_size_folder,
+    bg_rect_folder = create_rounded_rect(select_dir_button_canvas, 0, 0,
+                                        folder_button_width, path_element_height, # Use consistent height
                                         radius=8, fill=DISCORD_INPUT_BG, outline="")
     
-    # Emoji im Button platzieren (Offset anpassen für Zentrierung)
-    # Die genauen Offsets müssen ggf. durch Ausprobieren angepasst werden, abhängig von Font und Emoji-Größe
-    select_dir_button_canvas.create_image(button_size_folder/2 +1 , button_size_folder/2 +1, image=folder_emoji, anchor="center")
-    select_dir_button_canvas.image = folder_emoji  # Referenz bewahren
+    select_dir_button_canvas.create_image(folder_button_width / 2 + 1,
+                                        path_element_height / 2 + 1, # Centered in the new height
+                                        image=folder_emoji, anchor="center")
+    select_dir_button_canvas.image = folder_emoji
+
+    # Function to open directory dialog (assuming it's defined elsewhere or keep it here)
+    def select_directory():
+        directory = filedialog.askdirectory(
+            title="Speicherort auswählen",
+            initialdir=root.output_directory_path.get()
+        )
+        if directory:
+            root.output_directory_path.set(directory)
 
     select_dir_button_canvas.bind("<Button-1>", lambda e: select_directory())
 
@@ -1511,7 +1551,6 @@ def create_gui():
 
     select_dir_button_canvas.bind("<Enter>", on_folder_button_hover)
     select_dir_button_canvas.bind("<Leave>", on_folder_button_leave)
-    # --- ENDE NEUER ABSCHNITT ---
 
 
     # 4. Fortschrittsbalken
