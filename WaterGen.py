@@ -684,9 +684,9 @@ def create_csv_files(root, start_date, end_date, messstellen_ids, interval_hours
             
             # Use 'len(messstellen_ids)' for this check
             if len(messstellen_ids) == 1:
-                progress_info.config(text=f"CSV-Datei in Ordner '{display_folder_name}' gespeichert.")
+                progress_info.config(text=f"CSV-Datei unter '{display_folder_name}' gespeichert.")
             else:
-                progress_info.config(text=f"CSV-Dateien in Ordner '{display_folder_name}' gespeichert.")
+                progress_info.config(text=f"CSV-Dateien unter '{display_folder_name}' gespeichert.")
             root.update_idletasks()
         elif not root.cancel_generation_flag.is_set() and not created_csv_files_successfully:
             progress_info.config(text="Fehler: Keine CSV-Dateien erstellt.")
@@ -1476,7 +1476,7 @@ def create_gui():
     
     # Calculate width for the path entry's background canvas
     # Total canvas width (580) - left padding (20) - right padding (20) - folder button width (30) - gap (10)
-    path_entry_bg_width = 580 - 20 - 20 - folder_button_width - 10 # Results in 500
+    path_entry_bg_width = 565 - 20 - 20 - folder_button_width - 10 # Results in 500
 
     # 1. Create a canvas for the path entry's rounded background
     path_entry_bg_canvas = tk.Canvas(output_dir_canvas,
@@ -1504,7 +1504,7 @@ def create_gui():
                                     window=output_dir_entry)
 
     # Place the path_entry_bg_canvas (containing the Entry) onto the main output_dir_canvas
-    output_dir_canvas.create_window(20, path_button_y_center,
+    output_dir_canvas.create_window(25, path_button_y_center,
                                     window=path_entry_bg_canvas,
                                     anchor="w")  # Anchor "w" (west/left-middle)
     
