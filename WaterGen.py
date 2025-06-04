@@ -1442,7 +1442,7 @@ def create_gui():
     button_size_pencil = 30
     button_canvas2 = tk.Canvas(formel_canvas, width=button_size_pencil, height=button_size_pencil,
                             bg=DISCORD_DARK, highlightthickness=0)
-    formel_canvas.create_window(390, 30, window=button_canvas2)
+    formel_canvas.create_window(400, 30, window=button_canvas2)
     bg_rect_pencil = create_rounded_rect(button_canvas2, 0, 0, button_size_pencil, button_size_pencil,
                     radius=10, fill=DISCORD_INPUT_BG, outline="")
     button_canvas2.create_image(button_size_pencil/2+11, button_size_pencil/2+2, image=pencil_emoji, anchor="center")
@@ -1474,7 +1474,7 @@ def create_gui():
     path_element_height = 30
     folder_button_width = 30
     
-        # Calculate width for the path entry's background canvas
+    # Calculate width for the path entry's background canvas
     # Total canvas width (580) - left padding (20) - right padding (20) - folder button width (30) - gap (10)
     path_entry_bg_width = 580 - 20 - 20 - folder_button_width - 10 # Results in 500
 
@@ -1570,12 +1570,12 @@ def create_gui():
                     pbarrelief="flat")
     progress = ttk.Progressbar(progress_canvas, 
                             orient="horizontal", 
-                            length=540,
+                            length=520,
                             mode="determinate", 
                             style="Custom.Horizontal.TProgressbar")
-    progress_canvas.create_window(290, 30, window=progress)
+    progress_canvas.create_window(285, 30, window=progress)
     progress_info = tk.Label(progress_canvas, text="Werte generiert (0%)", **label_style)
-    progress_canvas.create_window(290, 60, window=progress_info)
+    progress_canvas.create_window(285, 60, window=progress_info)
 
     # 5. Start Button
     button_frame = tk.Frame(main_frame, bg=DISCORD_BG)
